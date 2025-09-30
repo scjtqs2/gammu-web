@@ -154,6 +154,13 @@ func (f *ForwardConn) retryForward(msg Msg, maxRetries int) bool {
 	return false
 }
 
+func (f *ForwardConn) getPhoneId(record Msg) string {
+	if os.Getenv("PHONE_ID") != "" {
+		return os.Getenv("PHONE_ID")
+	}
+	return fmt.Sprintf("SMS_%s", record.SelfNumber)
+}
+
 // forwardSMS 转发单条短信
 func (f *ForwardConn) forwardSMS(record Msg) error {
 	if !f.checkEnable() {
@@ -166,7 +173,7 @@ func (f *ForwardConn) forwardSMS(record Msg) error {
 		Time:      record.Time.Format("2006-01-02 15:04:05"), // 使用短信本身的时间
 		Text:      record.Text,
 		Source:    "gammu-web",
-		PhoneID:   fmt.Sprintf("SMS_%s", record.SelfNumber),
+		PhoneID:   f.getPhoneId(record),
 		Timestamp: time.Now().Format(time.RFC3339),
 	}
 

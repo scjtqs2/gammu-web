@@ -29,6 +29,9 @@ ENV FORWARD_URL="http://forwardsms:8080/api/v1/sms/receive"
 ENV FORWARD_SECRET=""
 ENV FORWARD_TIMEOUT="30"
 ENV DB_PATH="/data/db"
+ENV USB_PORT="/dev/ttyUSB3"
+ENV ATCONNECTION="at115200"
+ENV PHONE_ID=""
 
 ENTRYPOINT ["/docker/docker-entrypoint.sh"]
 
