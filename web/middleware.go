@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	log "github.com/ctaoist/gutils/log"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/ctaoist/gammu-web/config"
 )

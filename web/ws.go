@@ -9,7 +9,7 @@ import (
 	"github.com/ctaoist/gammu-web/config"
 	"github.com/ctaoist/gammu-web/message"
 	"github.com/ctaoist/gammu-web/smsd"
-	"github.com/ctaoist/gutils/log"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/gorilla/websocket"
 )

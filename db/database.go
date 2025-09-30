@@ -7,11 +7,9 @@ import (
 	"github.com/ctaoist/gammu-web/db/sqlite3"
 	"github.com/ctaoist/gammu-web/message"
 
-	gerror "github.com/ctaoist/gutils/error"
-	log "github.com/ctaoist/gutils/log"
+	log "github.com/sirupsen/logrus"
 )
 
-type Error = gerror.Error
 type Msg = message.Msg
 
 var (

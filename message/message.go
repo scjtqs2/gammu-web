@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ctaoist/gutils/log"
 	"github.com/gorilla/websocket"
+	log "github.com/sirupsen/logrus"
 )
 
 type Msg struct {

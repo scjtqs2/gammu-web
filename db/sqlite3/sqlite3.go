@@ -2,19 +2,26 @@ package sqlite3
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path"
 
-	gerror "github.com/ctaoist/gutils/error"
-	log "github.com/ctaoist/gutils/log"
 	_ "github.com/logoove/sqlite" // not use cgo
+	log "github.com/sirupsen/logrus"
 )
 
 type Database struct {
 	db *sql.DB
 }
 
-type Error = gerror.Error
+type Error struct {
+	Desc string
+	E    any
+}
+
+func (e Error) Error() string {
+	return fmt.Sprintf("[%s] %s", e.Desc, e.E)
+}
 
 var __CREATESQL1 = `CREATE TABLE if not exists messages
 (id TEXT PRIMARY KEY NOT NULL,

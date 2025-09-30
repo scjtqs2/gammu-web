@@ -11,7 +11,7 @@ import (
 	"github.com/ctaoist/gammu-web/db"
 	"github.com/ctaoist/gammu-web/message"
 
-	log "github.com/ctaoist/gutils/log"
+	log "github.com/sirupsen/logrus"
 )
 
 type event struct {

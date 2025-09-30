@@ -35,20 +35,33 @@ import (
 	"time"
 	"unsafe"
 
-	gerror "github.com/ctaoist/gutils/error"
-	log "github.com/ctaoist/gutils/log"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
 	lastSms C.GSM_SMSMessage
 )
 
-// Error
-type Error = gerror.Error
+// GSMError 包装 C.GSM_Error 的本地类型
+type GSMError C.GSM_Error
 
-func (e C.GSM_Error) Error() string {
+// Error 实现 error 接口
+func (e GSMError) Error() string {
 	return C.GoString(C.GSM_ErrorString(C.GSM_Error(e)))
 }
+
+// ToGSMError 将 C.GSM_Error 转换为 GSMError
+func ToGSMError(e C.GSM_Error) GSMError {
+	return GSMError(e)
+}
+
+func NewError(descr string, g C.GSM_Error) error {
+	return fmt.Errorf("[%s] %s", descr, ToGSMError(g).Error())
+}
+
+// func (e C.GSM_Error) Error() string {
+// 	return C.GoString(C.GSM_ErrorString(C.GSM_Error(e)))
+// }
 
 // type Error struct {
 // 	descr string
@@ -90,11 +103,11 @@ func NewStateMachine(cf string) (*StateMachine, error) {
 		cs := C.CString(cf)
 		defer C.free(unsafe.Pointer(cs))
 		if e := C.GSM_FindGammuRC(&config, cs); e != C.ERR_NONE {
-			return nil, Error{"FindGammuRC", e}
+			return nil, NewError("FindGammuRC", e)
 		}
 	} else {
 		if e := C.GSM_FindGammuRC(&config, nil); e != C.ERR_NONE {
-			return nil, Error{"FindGammuRC", e}
+			return nil, NewError("FindGammuRC", e)
 		}
 	}
 	defer C.INI_Free(config)
@@ -109,7 +122,7 @@ func NewStateMachine(cf string) (*StateMachine, error) {
 
 	if e := C.GSM_ReadConfig(config, C.GSM_GetConfig(sm.g, 0), 0); e != C.ERR_NONE {
 		sm.free()
-		return nil, Error{"ReadConfig", e}
+		return nil, NewError("ReadConfig", e)
 	}
 	C.GSM_SetConfigNum(sm.g, 1)
 	sm.Timeout = 15 * time.Second
@@ -129,13 +142,13 @@ func (sm *StateMachine) free() {
 func (sm *StateMachine) Connect() error {
 	if e := C.GSM_InitConnection(sm.g, 1); e != C.ERR_NONE {
 		sm.status = e
-		return Error{"InitConnection", e}
+		return NewError("InitConnection", e)
 	}
 	C.setStatusCallback(sm.g, &sm.status)
 	sm.smsc.Location = 1
 	if e := C.GSM_GetSMSC(sm.g, &sm.smsc); e != C.ERR_NONE {
 		sm.status = e
-		return Error{"GetSMSC", e}
+		return NewError("GetSMSC", e)
 	}
 	return nil
 }
@@ -147,7 +160,7 @@ func (sm *StateMachine) IsConnected() bool {
 func (sm *StateMachine) Disconnect() error {
 	if e := C.GSM_TerminateConnection(sm.g); e != C.ERR_NONE {
 		sm.status = e
-		return Error{"TerminateConnection", e}
+		return NewError("TerminateConnection", e)
 	}
 	return nil
 }
@@ -155,7 +168,7 @@ func (sm *StateMachine) Disconnect() error {
 func (sm *StateMachine) GetMemory(mem_type C.GSM_MemoryType, location int) (C.GSM_SubMemoryEntry, error) {
 	mem_entry := C.GSM_MemoryEntry{MemoryType: mem_type, Location: (C.int)(location)}
 	if e := C.GSM_GetMemory(sm.g, &mem_entry); e != C.ERR_NONE {
-		return C.GSM_SubMemoryEntry{}, Error{"GetMemory", e}
+		return C.GSM_SubMemoryEntry{}, NewError("GetMemory", e)
 	}
 	return mem_entry.Entries[0], nil
 }
@@ -199,7 +212,7 @@ func (sm *StateMachine) GetCountryCode() string {
 func (sm *StateMachine) Reset() error {
 	if e := C.GSM_Reset(sm.g, 0); e != C.ERR_NONE {
 		sm.status = e
-		return Error{"Reset", e}
+		return NewError("Reset", e)
 	}
 	return nil
 }
@@ -207,7 +220,7 @@ func (sm *StateMachine) Reset() error {
 func (sm *StateMachine) HardReset() error {
 	if e := C.GSM_Reset(sm.g, 1); e != C.ERR_NONE {
 		sm.status = e
-		return Error{"Reset", e}
+		return NewError("Reset", e)
 	}
 	return nil
 }
@@ -247,7 +260,7 @@ func (sm *StateMachine) sendSMS(sms *C.GSM_SMSMessage, number string, report boo
 	// Send mepssage
 	sm.status = C.ERR_TIMEOUT
 	if e := C.GSM_SendSMS(sm.g, sms); e != C.ERR_NONE {
-		return Error{"SendSMS", e}
+		return NewError("SendSMS", e)
 	}
 	// Wait for reply
 	t := time.Now()
@@ -262,7 +275,7 @@ func (sm *StateMachine) sendSMS(sms *C.GSM_SMSMessage, number string, report boo
 		}
 	}
 	if sm.status != C.ERR_NONE {
-		return Error{"ReadDevice", sm.status}
+		return NewError("ReadDevice", sm.status)
 	}
 	return nil
 }
@@ -344,7 +357,7 @@ func (sm *StateMachine) GetSMS() (sms SMS, err error) {
 		if e == C.ERR_EMPTY {
 			err = io.EOF
 		} else {
-			err = Error{"GetNextSMS", e}
+			err = NewError("GetNextSMS", e)
 		}
 		return
 	}
@@ -366,7 +379,7 @@ func (sm *StateMachine) GetSMS() (sms SMS, err error) {
 		}
 		s.Folder = 0 // Flat
 		if e := C.GSM_DeleteSMS(sm.g, &s); e != C.ERR_NONE {
-			err = Error{"DeleteSMS", e}
+			err = NewError("DeleteSMS", e)
 			return
 		}
 	}

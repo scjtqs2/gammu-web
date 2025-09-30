@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	"github.com/ctaoist/gammu-web/message"
-	log "github.com/ctaoist/gutils/log"
 	"github.com/gorilla/mux"
+	log "github.com/sirupsen/logrus"
 )
 
 //go:embed dist

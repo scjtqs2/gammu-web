@@ -7,7 +7,7 @@ import (
 
 	"github.com/ctaoist/gammu-web/db"
 	"github.com/ctaoist/gammu-web/smsd"
-	log "github.com/ctaoist/gutils/log"
+	log "github.com/sirupsen/logrus"
 )
 
 func verifyToken(w http.ResponseWriter, r *http.Request) {

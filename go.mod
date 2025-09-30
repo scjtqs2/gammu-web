@@ -3,7 +3,6 @@ module github.com/ctaoist/gammu-web
 go 1.24.0
 
 require (
-	github.com/ctaoist/gutils v0.0.0-20230505064114-795b0c23a2cd
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/logoove/sqlite v1.37.1
