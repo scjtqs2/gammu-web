@@ -43,8 +43,16 @@ func (s *Database) Init() {
 
 func (s *Database) Open() error {
 	dbPath := path.Join("data", "sqlite3")
+	if os.Getenv("DB_PATH") != "" {
+		dbPath = os.Getenv("DB_PATH")
+	}
 	_ = os.MkdirAll(dbPath, 0755)
-	dbPath += "/gammu.db"
+	if os.Getenv("DB_NAME") != "" {
+		dbPath = path.Join(dbPath, os.Getenv("DB_NAME"))
+	} else {
+		dbPath += "/gammu.db"
+	}
+
 	var err error
 	s.db, err = sql.Open("sqlite3", dbPath)
 	if err != nil {

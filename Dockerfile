@@ -19,6 +19,7 @@ ENV FORWARD_ENABLED="0"
 ENV FORWARD_URL="http://forwardsms:8080/api/v1/sms/receive"
 ENV FORWARD_SECRET=""
 ENV FORWARD_TIMEOUT="30"
+ENV DB_PATH="/data/db"
 
 ENTRYPOINT ["/docker/docker-entrypoint.sh"]
 
