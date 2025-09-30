@@ -1,6 +1,6 @@
 FROM golang:1.24-alpine3.22 AS builder
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-RUN go env -w GOPROXY="http://goproxy.cn,direct"
+#RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+#RUN go env -w GOPROXY="http://goproxy.cn,direct"
 
 WORKDIR /build
 COPY ./ .
