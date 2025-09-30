@@ -174,7 +174,7 @@ func (f *ForwardConn) forwardSMS(record Msg) error {
 		Text:      record.Text,
 		Source:    "gammu-web",
 		PhoneID:   f.getPhoneId(record),
-		Timestamp: time.Now().Format(time.RFC3339),
+		Timestamp: record.Time.Format(time.RFC3339),
 	}
 
 	// 序列化为 JSON
