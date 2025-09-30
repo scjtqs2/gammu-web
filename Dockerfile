@@ -1,9 +1,18 @@
+# 编译前端内容
+FROM node:20-alpine AS front
+WORKDIR /build
+COPY ./ .
+RUN cd src-web && \
+    npm install -g vite && \
+    npm install && \
+    vite build
+
 FROM golang:1.24-alpine3.22 AS builder
 #RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 #RUN go env -w GOPROXY="http://goproxy.cn,direct"
 
 WORKDIR /build
-COPY ./ .
+COPY --form=front /build /build
 RUN apk add build-base gammu-dev
 RUN CGO_ENABLED=1 go build -ldflags "-s -w" -o gammu-web
 
