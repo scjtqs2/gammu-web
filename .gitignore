@@ -4,7 +4,6 @@
 /test.sh
 test/*
 build
-go.sum
 data
 gammu-web
 web/dist/*
