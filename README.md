@@ -2,6 +2,8 @@
 
 # Gammu-Web
 
+修改自[ForwardSMS](https://github.com/SecurityPaper/ForwardSMS)
+
 Gammu-Web is a wrapper for [libGammu](https://github.com/gammu/gammu) with WebUI.
 
 [![GitHub license](https://img.shields.io/github/license/ctaoist/gammu-web.svg)](https://github.com/ctaoist/gammu-web/blob/master/LICENSE)

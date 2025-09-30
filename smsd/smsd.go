@@ -29,6 +29,7 @@ var (
 	ownNumber              = ""
 	errCount               = 0
 	lastErr                error
+	forwardSvc             *ForwardConn
 )
 
 func errCounter(e error) {
@@ -60,6 +61,7 @@ func Init(config string) {
 	log.Infof("GammuGetCountryCode", "Country code of phone: %s", GSM_StateMachine.GetCountryCode())
 	log.Infof("GammuGetOwnNumber", "Own phone number: %s", GSM_StateMachine.GetOwnNumber())
 
+	forwardSvc = initForward()
 	go ReseiveSendLoop()
 	go StorageSMSLoop()
 }
@@ -149,6 +151,13 @@ func ReseiveSendLoop() {
 
 func StorageSMSLoop() {
 	number := GSM_StateMachine.GetOwnNumber()
+	// 确保程序退出时关闭转发服务
+	defer func() {
+		if forwardSvc != nil {
+			forwardSvc.Close()
+		}
+	}()
+
 	for {
 		i := <-boxEvent
 		if i == 1 { // receive sms
@@ -156,11 +165,18 @@ func StorageSMSLoop() {
 				continue
 			}
 			inLock.Lock()
+			// 深度复制数据，避免数据竞争
+			msgsToForward := make([]Msg, len(inBox))
+			copy(msgsToForward, inBox)
+
 			for _, msg := range inBox {
 				message.WsSendSMS(number, msg)
 			}
 			db.InsertSMSMany(inBox)
 			db.UpdateAbstract(inBox[len(inBox)-1])
+			// 如果开启了短信转发，则将短信转发给forward接收端。
+			forwardSvc.PutMsgs(msgsToForward)
+
 			inBox = []Msg{}
 			inLock.Unlock()
 		} else if i == 2 { // send sms

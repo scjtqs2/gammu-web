@@ -34,6 +34,16 @@ func main() {
 		log.SetLevel(log.DebugLevel)
 	}
 
+	if os.Getenv("API_TOKEN") != "" {
+		config.AccessToken = os.Getenv("API_TOKEN")
+	}
+	if os.Getenv("API_PORT") != "" {
+		*port = os.Getenv("API_PORT")
+	}
+	if os.Getenv("DEBUG") == "true" || os.Getenv("DEBUG") == "1" {
+		log.SetLevel(log.DebugLevel)
+	}
+
 	if config.LogFile != "" {
 		f, err := os.OpenFile(config.LogFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 		if err != nil {
