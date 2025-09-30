@@ -9,7 +9,7 @@ RUN CGO_ENABLED=1 go build -ldflags "-s -w" -o gammu-web
 
 FROM alpine:3.22 AS production
 
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+#RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 RUN apk add --no-cache gammu
 
 COPY --from=builder /build/gammu-web /app/
