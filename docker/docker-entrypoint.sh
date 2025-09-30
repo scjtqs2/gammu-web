@@ -20,9 +20,6 @@ fi
 # 创建必要的目录
 mkdir -p /data/log /data/db /var/log/gammu
 
-# 设置目录权限
-chown -R gammu:gammu /data/log /data/db /var/log/gammu 2>/dev/null || true
-
 # 检查配置文件是否存在
 if [ ! -f "/docker/gammu.conf" ]; then
     echo "错误: /docker/gammu.conf 配置文件不存在"
@@ -32,10 +29,11 @@ fi
 # 显示配置信息
 echo "=== Gammu SMSD 配置信息 ==="
 echo "USB 端口: ${USB_PORT:-未设置}"
+echo "是否开启转发: ${FORWARD_ENABLED:-未设置}"
 echo "转发 URL: ${FORWARD_URL:-未设置}"
 echo "AT 连接: ${ATCONNECTION:-未设置}"
-echo "数据库路径: /data/db/sms.db"
-echo "日志路径: /data/log/"
+echo "数据库路径: ${DB_PATH:-/data/db}${DB_NAME:-/gammu.db}"
+echo "日志路径 ${LOG_PATH:-未设置}"
 echo "=========================="
 
 # 执行传入的命令
