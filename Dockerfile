@@ -12,7 +12,7 @@ FROM golang:1.24-alpine3.22 AS builder
 #RUN go env -w GOPROXY="http://goproxy.cn,direct"
 
 WORKDIR /build
-COPY --form=front /build /build
+COPY --from=front /build /build
 RUN apk add build-base gammu-dev
 RUN CGO_ENABLED=1 go build -ldflags "-s -w" -o gammu-web
 
