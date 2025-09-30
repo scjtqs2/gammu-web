@@ -8,8 +8,8 @@ RUN cd src-web && \
     vite build
 
 FROM golang:1.24-alpine3.22 AS builder
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-RUN go env -w GOPROXY="http://goproxy.cn,direct"
+#RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+#RUN go env -w GOPROXY="http://goproxy.cn,direct"
 
 WORKDIR /build
 COPY --from=front /build /build
@@ -18,7 +18,7 @@ RUN CGO_ENABLED=1 go build -ldflags "-s -w" -o gammu-web
 
 FROM alpine:3.22 AS production
 
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+#RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 RUN apk add --no-cache gammu
 
 COPY --from=builder /build/gammu-web /app/
