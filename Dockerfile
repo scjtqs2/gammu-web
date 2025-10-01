@@ -12,8 +12,8 @@ RUN cd src-web && \
 FROM golang:1.25-bookworm AS builder
 
 # 设置国内镜像源（可选）
-#RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list && \
-# sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list
+# RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
+#  sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
 
 # 设置 Go 代理（可选）
 # RUN go env -w GOPROXY="https://goproxy.cn,direct"
@@ -38,8 +38,8 @@ RUN CGO_ENABLED=1 go build -ldflags "-s -w" -o gammu-web
 FROM debian:bookworm-slim AS production
 
 # 设置国内镜像源（可选）
-#RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list && \
-# sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list
+# RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
+#  sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
 
 # 安装运行时依赖
 RUN apt-get update && apt-get install -y \
