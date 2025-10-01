@@ -45,6 +45,12 @@ func initForward() *ForwardConn {
 	forwardURL := getEnv("FORWARD_URL", "http://forwardsms:8080/api/v1/sms/receive")
 	forwardSecret := os.Getenv("FORWARD_SECRET")
 	forwardTimeout := getEnvInt("FORWARD_TIMEOUT", 30)
+
+	// 验证必要的配置
+	if forwardEnabled && forwardSecret == "" {
+		log.Warn("转发已启用但未设置 FORWARD_SECRET，转发功能可能无法正常工作")
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	conn := &ForwardConn{
 		ForwardEnabled: forwardEnabled,
@@ -56,11 +62,14 @@ func initForward() *ForwardConn {
 		ctx:            ctx,
 		cancel:         cancel,
 	}
+
 	// 启动多个worker
 	for i := 0; i < conn.workerCount; i++ {
 		conn.wg.Add(1)
 		go conn.processSMSWorker(i)
 	}
+
+	log.Infof("短信转发服务初始化完成: 启用=%v, Worker数量=%d", forwardEnabled, conn.workerCount)
 	return conn
 }
 
@@ -86,8 +95,24 @@ func (f *ForwardConn) checkEnable() bool {
 
 // Close 关闭转发服务
 func (f *ForwardConn) Close() {
+	log.Info("开始关闭转发服务...")
 	f.cancel()
-	f.wg.Wait()
+
+	// 等待所有 worker 完成
+	done := make(chan struct{})
+	go func() {
+		f.wg.Wait()
+		close(done)
+	}()
+
+	// 带超时的等待
+	select {
+	case <-done:
+		log.Info("转发服务已优雅关闭")
+	case <-time.After(10 * time.Second):
+		log.Warn("转发服务关闭超时，强制关闭")
+	}
+
 	close(f.ForwardChan)
 }
 
@@ -95,16 +120,18 @@ func (f *ForwardConn) Close() {
 func (f *ForwardConn) processSMSWorker(workerID int) {
 	defer f.wg.Done()
 
+	log.Infof("转发worker %d 启动", workerID) // 添加启动日志
+
 	for {
 		select {
 		case msgs, ok := <-f.ForwardChan:
 			if !ok {
-				log.Infof("转发worker %d 退出", workerID)
+				log.Infof("转发worker %d 退出", workerID) // 修复：workerID 是 int 类型
 				return
 			}
 			f.processBatchSMS(msgs, workerID)
 		case <-f.ctx.Done():
-			log.Infof("转发worker %s 收到退出信号", workerID)
+			log.Infof("转发worker %d 收到退出信号", workerID) // 修复：workerID 是 int 类型
 			return
 		}
 	}
@@ -124,7 +151,6 @@ func (f *ForwardConn) processBatchSMS(msgs []Msg, workerID int) {
 	for _, msg := range msgs {
 		if err := f.forwardSMS(msg); err != nil {
 			log.Errorf("worker %d 短信转发失败: %v", workerID, err)
-			failCount++
 
 			// 失败重试逻辑
 			if f.retryForward(msg, 3) {
