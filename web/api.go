@@ -57,7 +57,7 @@ func getAbstract(w http.ResponseWriter, r *http.Request) {
 		var e error
 		page, e = strconv.Atoi(p)
 		if e != nil {
-			log.Error("ParseParams", e)
+			log.Errorf("ParseParams %v", e)
 			// json.NewEncoder(w).Encode(map[string]interface{}{"retCode": -1, "errorMsg": e})
 			// return
 		}

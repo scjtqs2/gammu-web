@@ -56,7 +56,7 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	} else if err != nil {
 		// if we got an error (that wasn't that the file doesn't exist) stating the file, return a 500 internal server error and stop
-		log.Error("SPA Handler", err)
+		log.Errorf("SPA Handler %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -102,7 +102,7 @@ func RunServer(port string) {
 func getFileSystem(web embed.FS) http.FileSystem {
 	fsys, err := fs.Sub(web, "dist")
 	if err != nil {
-		log.Fatal("WebGetFS", err)
+		log.Fatalf("WebGetFS %v", err)
 	}
 	return http.FS(fsys)
 }
