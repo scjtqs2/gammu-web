@@ -1,5 +1,5 @@
 # 编译前端内容
-FROM node:18-alpine AS front
+FROM node:20-alpine AS front
 WORKDIR /build
 COPY ./ .
 RUN cd src-web && \
@@ -13,13 +13,13 @@ FROM golang:1.24-alpine3.22 AS builder
 
 WORKDIR /build
 COPY --from=front /build /build
-RUN apk add build-base gammu-dev
+RUN apk add build-base gammu-dev pkgconfig gcc musl-dev make cmake
 RUN CGO_ENABLED=1 go build -ldflags "-s -w" -o gammu-web
 
 FROM alpine:3.22 AS production
 
 #RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-RUN apk add --no-cache gammu gammu-libs bash
+RUN apk add --no-cache gammu-libs bash ca-certificates
 # 设置上海时区
 RUN apk add --no-cache tzdata && \
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \

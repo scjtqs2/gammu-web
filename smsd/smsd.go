@@ -53,10 +53,10 @@ func Init(config string) {
 	}
 	GSM_StateMachine, e = NewStateMachine(config)
 	if e != nil {
-		log.Fatal("GammuInit", e)
+		log.Fatalf("GammuInit %v", e)
 	}
 	if e := GSM_StateMachine.Connect(); e != nil {
-		log.Fatal("GammuInit", e)
+		log.Fatalf("GammuInit %v", e)
 	}
 	log.Infof("GammuGetCountryCode", "Country code of phone: %s", GSM_StateMachine.GetCountryCode())
 	log.Infof("GammuGetOwnNumber", "Own phone number: %s", GSM_StateMachine.GetOwnNumber())
@@ -99,7 +99,7 @@ func ReceiveSMS() {
 		if err == io.EOF {
 			return
 		}
-		log.Error("GammuGetSMS", err)
+		log.Errorf("GammuGetSMS %v", err)
 		errCounter(err)
 		return
 	}

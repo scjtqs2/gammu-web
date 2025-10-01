@@ -1,11 +1,16 @@
+//go:build !static
+// +build !static
+
 // Go binding for libGammu (library to work with different cell phones)
+/**
+ * @author scjtqs
+ * @email scjtqs@qq.com
+ */
+// 动态编译版本
 package smsd
 
 /*
 #cgo pkg-config: gammu
-// #cgo CFLAGS: -I/usr/include/gammu
-// #cgo LDFLAGS: -lGammu -lm
-// #include <stdlib.h>
 #include <gammu.h>
 
 void sendCallback(GSM_StateMachine *sm, int status, int msgRef, void *data) {
