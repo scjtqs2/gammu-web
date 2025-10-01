@@ -1,12 +1,3 @@
-//go:build !static
-// +build !static
-
-// Go binding for libGammu (library to work with different cell phones)
-/**
- * @author scjtqs
- * @email scjtqs@qq.com
- */
-// 动态编译版本
 package smsd
 
 /*
@@ -14,20 +5,20 @@ package smsd
 #include <gammu.h>
 
 void sendCallback(GSM_StateMachine *sm, int status, int msgRef, void *data) {
-	if (status==0) {
-		*((GSM_Error *) data) = ERR_NONE;
-	} else {
-		*((GSM_Error *) data) = ERR_UNKNOWN;
-	}
+    if (status==0) {
+        *((GSM_Error *) data) = ERR_NONE;
+    } else {
+        *((GSM_Error *) data) = ERR_UNKNOWN;
+    }
 }
 void setStatusCallback(GSM_StateMachine *sm, GSM_Error *status) {
-	GSM_SetSendSMSStatusCallback(sm, sendCallback, status);
+    GSM_SetSendSMSStatusCallback(sm, sendCallback, status);
 }
 GSM_Debug_Info *debug_info;
 void setDebug() {
-	debug_info = GSM_GetGlobalDebug();
-	GSM_SetDebugFileDescriptor(stderr, TRUE, debug_info);
-	GSM_SetDebugLevel("textall", debug_info);
+    debug_info = GSM_GetGlobalDebug();
+    GSM_SetDebugFileDescriptor(stderr, TRUE, debug_info);
+    GSM_SetDebugLevel("textall", debug_info);
 }
 
 #cgo pkg-config: gammu
@@ -45,7 +36,8 @@ import (
 )
 
 var (
-	lastSms C.GSM_SMSMessage
+	lastSms           C.GSM_SMSMessage
+	processedSMSCount = 0
 )
 
 // GSMError 包装 C.GSM_Error 的本地类型
@@ -64,21 +56,6 @@ func ToGSMError(e C.GSM_Error) GSMError {
 func NewError(descr string, g C.GSM_Error) error {
 	return fmt.Errorf("[%s] %s", descr, ToGSMError(g).Error())
 }
-
-// func (e C.GSM_Error) Error() string {
-// 	return C.GoString(C.GSM_ErrorString(C.GSM_Error(e)))
-// }
-
-// type Error struct {
-// 	descr string
-// 	g     C.GSM_Error
-// }
-
-// func (e Error) Error() string {
-// 	return fmt.Sprintf(
-// 		"[%s] %s", e.descr, C.GoString(C.GSM_ErrorString(C.GSM_Error(e.g))),
-// 	)
-// }
 
 type EncodeError struct {
 	g C.GSM_Error
@@ -245,18 +222,6 @@ func encodeUnicode(out *C.uchar, in string) {
 	C.free(unsafe.Pointer(cin))
 }
 
-// func toUnicode(in string) {
-// 	textQuoted := strconv.QuoteToASCII(in)
-// 	textUnquoted := textQuoted[1 : len(textQuoted)-1]
-// 	textUnquoted
-// }
-
-// func decodeUnicode(out *C.uchar, in string) {
-// 	cn := C.CString(in)
-// 	C.DecodeUnicode(cn, out)
-// 	C.free(unsafe.Pointer(cn))
-// }
-
 func (sm *StateMachine) sendSMS(sms *C.GSM_SMSMessage, number string, report bool) error {
 	C.CopyUnicodeString(&sms.SMSC.Number[0], &sm.smsc.Number[0])
 	decodeUTF8(&sms.Number[0], number)
@@ -360,7 +325,10 @@ type SMS struct {
 // Returns io.EOF if there is no more messages to read
 func (sm *StateMachine) GetSMS() (sms SMS, err error) {
 	var msms C.GSM_MultiSMSMessage
-	if e := C.GSM_GetSMS(sm.g, &msms); e != C.ERR_NONE {
+	// GSM_Error GSM_GetSMS(GSM_StateMachine *s, GSM_MultiSMSMessage *sms,
+	//                     int folder, int location);
+	// location → 短信在该存储区里的索引号（从 1 开始，不是 0）。
+	if e := C.GSM_GetSMS(sm.g, &msms, C.int(0), C.int(1)); e != C.ERR_NONE {
 		// if e := C.GSM_GetNextSMS(sm.g, &msms, C.TRUE); e != C.ERR_NONE {
 		if e == C.ERR_EMPTY {
 			err = io.EOF
@@ -399,4 +367,36 @@ func c_gsm_deleteSMS(sm *StateMachine, s C.GSM_SMSMessage) {
 	if e := C.GSM_DeleteSMS(sm.g, &s); e != C.ERR_NONE {
 		log.Error("c_gsm_DeleteSMS", e)
 	}
+}
+
+// 重置短信状态 - 使用现有的函数
+func (sm *StateMachine) ResetSMSStatus() error {
+	// 方法1: 使用通用的重置函数
+	if e := C.GSM_Reset(sm.g, 0); e != C.ERR_NONE {
+		return NewError("Reset", e)
+	}
+
+	// 方法2: 重新初始化连接
+	if err := sm.Reconnect(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// 重新连接
+func (sm *StateMachine) Reconnect() error {
+	if sm.IsConnected() {
+		if err := sm.Disconnect(); err != nil {
+			log.Warnf("断开连接失败: %v", err)
+		}
+	}
+
+	time.Sleep(2 * time.Second)
+
+	if err := sm.Connect(); err != nil {
+		return fmt.Errorf("重新连接失败: %v", err)
+	}
+
+	return nil
 }

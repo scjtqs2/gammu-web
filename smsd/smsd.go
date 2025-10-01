@@ -55,9 +55,11 @@ func Init(config string) {
 	if e != nil {
 		log.Fatalf("GammuInit %v", e)
 	}
+
 	if e := GSM_StateMachine.Connect(); e != nil {
 		log.Fatalf("GammuInit %v", e)
 	}
+
 	log.Infof("GammuGetCountryCode Country code of phone: %s", GSM_StateMachine.GetCountryCode())
 	log.Infof("GammuGetOwnNumber Own phone number: %s", GSM_StateMachine.GetOwnNumber())
 
@@ -93,49 +95,73 @@ func SendSMS(phone_number, text string) {
 	sendMsgEvent <- event{}
 }
 
-func ReceiveSMS() {
+func ReceiveSMS() error {
 	sms, err := GSM_StateMachine.GetSMS()
 	if err != nil {
 		if err == io.EOF {
-			return
+			// 没有短信是正常情况，不需要记录错误
+			return err
 		}
-		log.Errorf("GammuGetSMS %v", err)
+		log.Errorf("读取短信失败: %v", err)
 		errCounter(err)
-		return
+		return err
 	}
+
 	if len(sms.Body) <= 0 {
+		log.Warn("收到空短信内容，跳过处理")
+		// 删除空短信
 		c_gsm_deleteSMS(GSM_StateMachine, lastSms)
-		return
+		return nil
 	}
-	log.Debugf("Test %+v\n", sms)
+
+	log.Debugf("收到短信 - 发件人: %s, 时间: %s, 内容长度: %d",
+		sms.Number, sms.Time.Format(time.RFC3339), len(sms.Body))
+
 	if sms.Report {
 		m := strings.TrimSpace(sms.Body)
 		if strings.ToLower(m) == "delivered" {
-			log.Debugf("Delivered SMS %+v\n", sms)
+			log.Debugf("短信送达报告: %+v", sms)
 			boxEvent <- 2
 		}
 	} else {
-		// Save a message in Inbox
-		msg := Msg{"", GSM_StateMachine.GetOwnNumber(), sms.Number, sms.Body, false, sms.Time}
+		// 保存到收件箱
+		msg := Msg{
+			ID:         "",
+			SelfNumber: GSM_StateMachine.GetOwnNumber(),
+			Number:     sms.Number,
+			Text:       sms.Body,
+			Sent:       false,
+			Time:       sms.Time,
+		}
 		msg.GenerateId()
-		log.Infof("ReceivedSMS From %s with text: %s\n", msg.Number, msg.Text)
+		log.Infof("收到短信 - 发件人: %s, 内容: %s", msg.Number, msg.Text)
+
 		inLock.Lock()
 		inBox = append(inBox, msg)
 		inLock.Unlock()
 		boxEvent <- 1
 	}
+	return nil
 }
 
 func ReseiveSendLoop() {
 	for {
-		ReceiveSMS()
+		err := ReceiveSMS()
+		if err == io.EOF {
+			GSM_StateMachine.Reconnect()
+			time.Sleep(time.Duration(receiveLoopSleep) * time.Second)
+			continue
+		}
 		select {
 		case <-sendMsgEvent:
 			t := time.Now()
 			outLock.Lock()
 			i := 0
 			for _, m := range outBox {
-				GSM_StateMachine.SendLongSMS(m.Number, m.Text, true) // need report = true
+				if err := GSM_StateMachine.SendLongSMS(m.Number, m.Text, true); err != nil {
+					log.Errorf("发送短信失败: %v", err)
+					continue
+				}
 				i++
 				if time.Since(t) > 3*time.Second {
 					break
