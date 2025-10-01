@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type ForwardConn struct {
@@ -34,7 +35,7 @@ type SMSRequest struct {
 	Text      string `json:"text"`
 	Source    string `json:"source"`
 	PhoneID   string `json:"phone_id"`
-	SMSID     int    `json:"sms_id"`
+	SMSID     string `json:"sms_id"`
 	Timestamp string `json:"timestamp"`
 }
 
@@ -174,7 +175,8 @@ func (f *ForwardConn) forwardSMS(record Msg) error {
 		Text:      record.Text,
 		Source:    "gammu-web",
 		PhoneID:   f.getPhoneId(record),
-		Timestamp: record.Time.Format(time.RFC3339),
+		SMSID:     record.ID,
+		Timestamp: strconv.FormatInt(record.Time.Unix(), 10),
 	}
 
 	// 序列化为 JSON
