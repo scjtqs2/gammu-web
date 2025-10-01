@@ -2,6 +2,8 @@
 FROM node:20-alpine AS front
 WORKDIR /build
 COPY ./ .
+# 设置 npm 国内镜像（简化版）
+# RUN npm config set registry https://registry.npmmirror.com
 RUN cd src-web && \
     npm install -g vite && \
     npm install && \
@@ -9,47 +11,39 @@ RUN cd src-web && \
     vite build
 
 # 编译 Go 后端
-FROM golang:1.25-bookworm AS builder
+FROM golang:1.25-alpine3.22 AS builder
 
-# 设置国内镜像源（可选）
-# RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
-#  sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
-
+# 设置 Alpine 镜像源（可选）
+# RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 # 设置 Go 代理（可选）
 # RUN go env -w GOPROXY="https://goproxy.cn,direct"
-
 WORKDIR /build
 COPY --from=front /build /build
 
-# 安装 Debian 构建依赖
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libgammu-dev \
-    pkg-config \
+# 安装 Alpine 构建依赖
+RUN apk add --no-cache \
+    build-base \
+    gammu-dev \
+    pkgconfig \
     gcc \
     make \
-    cmake \
-    && rm -rf /var/lib/apt/lists/*
+    cmake
 
 # 编译 Go 程序
 RUN CGO_ENABLED=1 go build -ldflags "-s -w" -o gammu-web
 
 # 生产环境
-FROM debian:bookworm-slim AS production
+FROM alpine:3.22 AS production
 
-# 设置国内镜像源（可选）
-# RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
-#  sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
+# 设置 Alpine 镜像源（可选）
+# RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
 # 安装运行时依赖
-RUN apt-get update && apt-get install -y \
-    libgammu-dev \
+RUN apk add --no-cache \
+    gammu-libs \
     bash \
     ca-certificates \
-    curl \
-    jq \
-    tzdata \
-    && rm -rf /var/lib/apt/lists/*
+    tzdata
 
 # 设置上海时区
 RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
@@ -74,9 +68,9 @@ ENV USB_PORT="/dev/ttyUSB2"
 ENV ATCONNECTION="at115200"
 ENV PHONE_ID=""
 ENV TZ="Asia/Shanghai"
-#日志debug级别
+# 日志debug级别
 ENV DEBUG="0"
-#打印gammu的debug日志。
+# 打印gammu的debug日志
 ENV GAMMU_DEBUG="0"
 
 ENTRYPOINT ["/docker/docker-entrypoint.sh"]
