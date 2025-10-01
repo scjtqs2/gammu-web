@@ -19,7 +19,7 @@ RUN CGO_ENABLED=1 go build -ldflags "-s -w" -o gammu-web
 FROM alpine:3.22 AS production
 
 #RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-RUN apk add --no-cache gammu bash
+RUN apk add --no-cache gammu gammu-libs bash
 # 设置上海时区
 RUN apk add --no-cache tzdata && \
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
