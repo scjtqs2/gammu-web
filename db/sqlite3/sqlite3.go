@@ -61,7 +61,7 @@ func (s *Database) Open() error {
 	}
 
 	var err error
-	s.db, err = sql.Open("sqlite3", dbPath)
+	s.db, err = sql.Open("sqlite", dbPath)
 	if err != nil {
 		return Error{"Sqlite3Open", err}
 	}
