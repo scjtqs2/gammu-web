@@ -188,7 +188,7 @@ func ReceiveSMS() error {
 		m := strings.TrimSpace(sms.Body)
 		if strings.ToLower(m) == "delivered" {
 			log.Debugf("短信送达报告: %+v", sms)
-			boxEvent <- 2
+			// boxEvent <- 2
 		}
 	} else {
 		msg := Msg{
@@ -239,6 +239,13 @@ func ReseiveSendLoop() {
 					log.Errorf("发送短信失败: %v", err)
 					continue
 				}
+				// 发送成功立即入库
+				db.InsertSMS(m)
+				db.UpdateAbstract(m)
+
+				// 加入 sentBox 用于 WebSocket 推送
+				sentBox = append(sentBox, m)
+
 				i++
 				if time.Since(t) > 3*time.Second {
 					break
@@ -247,7 +254,10 @@ func ReseiveSendLoop() {
 			sentBox = outBox[:i]
 			outBox = outBox[i:]
 			outLock.Unlock()
-
+			// 触发 WebSocket 推送
+			if len(sentBox) > 0 {
+				boxEvent <- 2
+			}
 		default:
 			// 没有发送请求，尝试接收短信
 			err := ReceiveSMS()
@@ -337,8 +347,8 @@ func StorageSMSLoop() {
 					log.Infof("SentSMS To %s with text: %s", msg.Number, msg.Text)
 					message.WsSendSMS(number, msg)
 				}
-				db.InsertSMSMany(sentBox)
-				db.UpdateAbstract(sentBox[len(sentBox)-1])
+				// db.InsertSMSMany(sentBox)
+				// db.UpdateAbstract(sentBox[len(sentBox)-1])
 				sentBox = []Msg{}
 				outLock.Unlock()
 			}
