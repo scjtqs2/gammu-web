@@ -99,18 +99,18 @@ func ReceiveSMS() error {
 	sms, err := GSM_StateMachine.GetSMS()
 	if err != nil {
 		if err == io.EOF {
-			// 没有短信是正常情况，不需要记录错误
-			return err
+			// 没有短信 —— 正常，返回 EOF 由上层循环决定是否重连/等待
+			return io.EOF
 		}
 		log.Errorf("读取短信失败: %v", err)
 		errCounter(err)
 		return err
 	}
 
-	if len(sms.Body) <= 0 {
+	if len(strings.TrimSpace(sms.Body)) == 0 {
 		log.Warn("收到空短信内容，跳过处理")
-		// 删除空短信
-		c_gsm_deleteSMS(GSM_StateMachine, lastSms)
+		// 如果你已经在 GetSMS 里删除了短信，这里不必再删除。
+		// 但若你使用 GSM_GetNextSMS(..., C.FALSE) 则需要显式删除，这里可以用 c_gsm_deleteSMS
 		return nil
 	}
 
@@ -124,7 +124,6 @@ func ReceiveSMS() error {
 			boxEvent <- 2
 		}
 	} else {
-		// 保存到收件箱
 		msg := Msg{
 			ID:         "",
 			SelfNumber: GSM_StateMachine.GetOwnNumber(),
@@ -145,13 +144,11 @@ func ReceiveSMS() error {
 }
 
 func ReseiveSendLoop() {
+	backoff := 1 * time.Second
+	maxBackoff := 30 * time.Second
+
 	for {
-		err := ReceiveSMS()
-		if err == io.EOF {
-			GSM_StateMachine.Reconnect()
-			time.Sleep(time.Duration(receiveLoopSleep) * time.Second)
-			continue
-		}
+		// 先处理发送事件优先级（非阻塞）
 		select {
 		case <-sendMsgEvent:
 			t := time.Now()
@@ -170,8 +167,35 @@ func ReseiveSendLoop() {
 			sentBox = outBox[:i]
 			outBox = outBox[i:]
 			outLock.Unlock()
-		case <-time.After(time.Duration(receiveLoopSleep) * time.Second):
+		default:
+			// 没有发送请求，继续接收流程
 		}
+
+		// 尝试接收一条短信
+		err := ReceiveSMS()
+		if err == nil {
+			// 成功读取到短信或没有错误，重置 backoff
+			backoff = 1 * time.Second
+		} else if err == io.EOF {
+			// 没有短信：等一会再尝试（不立即重连，避免频繁重连）
+			time.Sleep(backoff)
+			if backoff < maxBackoff {
+				backoff *= 2
+			}
+			continue
+		} else {
+			// 非 EOF 错误：计数器会处理是否重置设备
+			log.Errorf("ReceiveSMS error: %v", err)
+			time.Sleep(backoff)
+			if backoff < maxBackoff {
+				backoff *= 2
+			}
+			// 如果 errCounter 触发了 GSM_Reset/HadReset，Reconnect 会在其它流程里触发或你可以在这里调用
+			continue
+		}
+
+		// 定期短暂停顿，避免忙循环
+		time.Sleep(time.Duration(receiveLoopSleep) * time.Second)
 	}
 }
 

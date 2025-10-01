@@ -74,6 +74,10 @@ ENV USB_PORT="/dev/ttyUSB2"
 ENV ATCONNECTION="at115200"
 ENV PHONE_ID=""
 ENV TZ="Asia/Shanghai"
+#日志debug级别
+ENV DEBUG="0"
+#打印gammu的debug日志。
+ENV GAMMU_DEBUG="0"
 
 ENTRYPOINT ["/docker/docker-entrypoint.sh"]
 

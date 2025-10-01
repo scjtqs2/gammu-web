@@ -80,7 +80,7 @@ type StateMachine struct {
 
 // Creates new state maschine using cf configuration file or default configuration file `~/.gammurc` if cf == "".
 func NewStateMachine(cf string) (*StateMachine, error) {
-	if os.Getenv("DEBUG") == "true" || os.Getenv("DEBUG") == "1" {
+	if os.Getenv("GAMMU_DEBUG") == "true" || os.Getenv("GAMMU_DEBUG") == "1" {
 		C.setDebug()
 	}
 	var config *C.INI_Section
@@ -321,51 +321,66 @@ type SMS struct {
 	Body     string
 }
 
-// Read and deletes first avaliable message.
-// Returns io.EOF if there is no more messages to read
+// Read and deletes first available message.
+// Returns io.EOF if there are no more messages to read
 func (sm *StateMachine) GetSMS() (sms SMS, err error) {
 	var msms C.GSM_MultiSMSMessage
-	// GSM_Error GSM_GetSMS(GSM_StateMachine *s, GSM_MultiSMSMessage *sms,
-	//                     int folder, int location);
-	// location → 短信在该存储区里的索引号（从 1 开始，不是 0）。
-	if e := C.GSM_GetSMS(sm.g, &msms, C.int(0), C.int(1)); e != C.ERR_NONE {
-		// if e := C.GSM_GetNextSMS(sm.g, &msms, C.TRUE); e != C.ERR_NONE {
-		if e == C.ERR_EMPTY {
-			err = io.EOF
-		} else {
-			err = NewError("GetNextSMS", e)
-		}
-		return
-	}
-	s := msms.SMS[msms.Number-1]
-	sms.Number = encodeUTF8(&s.Number[0])
-	sms.Time = goTime(&s.DateTime)
-	sms.SMSCTime = goTime(&s.SMSCTime)
 
+	// 使用 GetNextSMS，从头开始读取（start = TRUE 表示从头开始扫描）
+	// 如果你希望保持未删除，可以把最后一个参数设为 C.FALSE 然后手动删除。
+	if e := C.GSM_GetNextSMS(sm.g, &msms, C.TRUE); e != C.ERR_NONE {
+		if e == C.ERR_EMPTY {
+			return sms, io.EOF
+		}
+		return sms, NewError("GetNextSMS", e)
+	}
+
+	// msms.Number 表示 msms.SMS[] 中的条目数（分段sms会放在一起）
+	// 取第一个条目的发件人/时间作为该 "消息" 的元信息
+	first := msms.SMS[0]
+	sms.Number = encodeUTF8(&first.Number[0])
+	sms.Time = goTime(&first.DateTime)
+	sms.SMSCTime = goTime(&first.SMSCTime)
+
+	// 将多段拼接
 	for i := 0; i < int(msms.Number); i++ {
-		s = msms.SMS[i]
+		s := msms.SMS[i]
+		// 保存 lastSms 按需（若你确实需要全局 lastSms，可在这里赋值）
 		lastSms = s
+
 		if s.Coding == C.SMS_Coding_8bit {
+			// 跳过二进制消息体（或按需处理）
 			continue
 		}
 		sms.Body += encodeUTF8(&s.Text[0])
-		// sms.Body += encodeUTF8(&s.MessageReference)
 		if s.PDU == C.SMS_Status_Report {
 			sms.Report = true
 		}
-		s.Folder = 0 // Flat
+	}
+
+	// 如果你传入 C.TRUE 给 GSM_GetNextSMS，libgammu 在读取时就能做删除。
+	// 但不同版本/驱动表现可能不一，若你想显式删除可以对 msms.SMS[0] 调用 GSM_DeleteSMS。
+	// 我们这里尝试显式删除以确保：
+	for i := 0; i < int(msms.Number); i++ {
+		s := msms.SMS[i]
+		// 设置 Flat folder（与之前逻辑一致）
+		s.Folder = 0
 		if e := C.GSM_DeleteSMS(sm.g, &s); e != C.ERR_NONE {
-			err = NewError("DeleteSMS", e)
-			return
+			// 不是致命错误，但返回包装后上层处理
+			return sms, NewError("DeleteSMS", e)
 		}
 	}
-	return
+
+	return sms, nil
 }
 
-func c_gsm_deleteSMS(sm *StateMachine, s C.GSM_SMSMessage) {
+func c_gsm_deleteSMS(sm *StateMachine, s *C.GSM_SMSMessage) {
+	if s == nil {
+		return
+	}
 	s.Folder = 0 // Flat
-	if e := C.GSM_DeleteSMS(sm.g, &s); e != C.ERR_NONE {
-		log.Error("c_gsm_DeleteSMS", e)
+	if e := C.GSM_DeleteSMS(sm.g, s); e != C.ERR_NONE {
+		log.Error("c_gsm_DeleteSMS", NewError("DeleteSMS", e))
 	}
 }
 
