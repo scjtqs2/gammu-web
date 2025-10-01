@@ -72,7 +72,11 @@ func main() {
 		defer f.Close()
 		log.SetOutput(f)
 	}
-
+	logPath := os.Getenv("LOG_PATH")
+	if logPath != "" {
+		config.LogFile = logPath
+	}
+	
 	log.Info("Init", "Initializing...")
 	db.Init()
 
