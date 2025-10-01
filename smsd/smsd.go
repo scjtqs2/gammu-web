@@ -1,10 +1,14 @@
 package smsd
 
 import (
+	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"os/user"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ctaoist/gammu-web/config"
@@ -14,22 +18,23 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type event struct {
-}
+type event struct{}
 
 type Msg = message.Msg
 
 var (
 	GSM_StateMachine       *StateMachine
 	sendMsgEvent           = make(chan event, 1000)
-	boxEvent               = make(chan int, 1000) // 1: reveive, 2: send
+	boxEvent               = make(chan int, 1000) // 1: receive, 2: send
 	receiveLoopSleep       = 1
 	outBox, inBox, sentBox []Msg
-	inLock, outLock        sync.Mutex
+	inLock, outLock        sync.RWMutex
 	ownNumber              = ""
 	errCount               = 0
 	lastErr                error
 	forwardSvc             *ForwardConn
+	shutdownChan           = make(chan struct{})
+	wg                     sync.WaitGroup
 )
 
 func errCounter(e error) {
@@ -38,10 +43,11 @@ func errCounter(e error) {
 		errCount = 1
 		return
 	}
-	errCount = errCount + 1
+	errCount++
 	if errCount >= 3 {
 		log.Warn("GSMReset errCount >= 3, GSM hard reset")
 		GSM_StateMachine.HardReset()
+		errCount = 0 // 重置计数器
 	}
 }
 
@@ -51,6 +57,7 @@ func Init(config string) {
 		u, _ := user.Current()
 		config = u.HomeDir + "/" + config[1:]
 	}
+
 	GSM_StateMachine, e = NewStateMachine(config)
 	if e != nil {
 		log.Fatalf("GammuInit %v", e)
@@ -64,12 +71,59 @@ func Init(config string) {
 	log.Infof("GammuGetOwnNumber Own phone number: %s", GSM_StateMachine.GetOwnNumber())
 
 	forwardSvc = initForward()
+
+	// 启动工作协程
+	wg.Add(2)
 	go ReseiveSendLoop()
 	go StorageSMSLoop()
+
+	// 设置信号处理，优雅关闭
+	setupSignalHandler()
+}
+
+func setupSignalHandler() {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigChan
+		log.Infof("收到信号 %v，开始优雅关闭...", sig)
+		Close()
+	}()
 }
 
 func Close() {
-	GSM_StateMachine.free()
+	log.Info("开始关闭短信服务...")
+
+	// 关闭事件通道，停止新的处理
+	close(shutdownChan)
+
+	// 等待所有工作协程完成
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	// 带超时的等待
+	select {
+	case <-done:
+		log.Info("所有工作协程已退出")
+	case <-time.After(30 * time.Second):
+		log.Warn("关闭超时，强制退出")
+	}
+
+	// 关闭转发服务
+	if forwardSvc != nil {
+		forwardSvc.Close()
+	}
+
+	// 关闭GSM状态机
+	if GSM_StateMachine != nil {
+		GSM_StateMachine.free()
+	}
+
+	log.Info("短信服务已关闭")
 }
 
 func GetOwnNumber() string {
@@ -82,17 +136,32 @@ func GetOwnNumber() string {
 	return ownNumber
 }
 
-func SendSMS(phone_number, text string) {
+func SendSMS(phone_number, text string) error {
+	if phone_number == "" || text == "" {
+		return fmt.Errorf("手机号或短信内容不能为空")
+	}
+
 	if phone_number[0] != '+' {
 		phone_number = GSM_StateMachine.country + phone_number
 	}
+
 	t := time.Now()
 	msg := Msg{"", GSM_StateMachine.GetOwnNumber(), phone_number, text, true, t}
 	msg.GenerateId()
+
 	outLock.Lock()
 	outBox = append(outBox, msg)
 	outLock.Unlock()
-	sendMsgEvent <- event{}
+
+	select {
+	case sendMsgEvent <- event{}:
+		log.Infof("短信已加入发送队列: %s -> %s", msg.SelfNumber, msg.Number)
+		return nil
+	case <-shutdownChan:
+		return fmt.Errorf("服务正在关闭，无法发送短信")
+	default:
+		return fmt.Errorf("发送队列已满，请稍后重试")
+	}
 }
 
 func ReceiveSMS() error {
@@ -109,8 +178,6 @@ func ReceiveSMS() error {
 
 	if len(strings.TrimSpace(sms.Body)) == 0 {
 		log.Warn("收到空短信内容，跳过处理")
-		// 如果你已经在 GetSMS 里删除了短信，这里不必再删除。
-		// 但若你使用 GSM_GetNextSMS(..., C.FALSE) 则需要显式删除，这里可以用 c_gsm_deleteSMS
 		return nil
 	}
 
@@ -138,19 +205,32 @@ func ReceiveSMS() error {
 		inLock.Lock()
 		inBox = append(inBox, msg)
 		inLock.Unlock()
-		boxEvent <- 1
+
+		select {
+		case boxEvent <- 1:
+			// 成功发送事件
+		case <-shutdownChan:
+			log.Warn("服务正在关闭，丢弃收到的短信")
+		default:
+			log.Warn("事件队列已满，丢弃收到的短信")
+		}
 	}
 	return nil
 }
 
 func ReseiveSendLoop() {
+	defer wg.Done()
+
 	backoff := 1 * time.Second
 	maxBackoff := 30 * time.Second
 
 	for {
-		// 先处理发送事件优先级（非阻塞）
 		select {
+		case <-shutdownChan:
+			log.Info("接收发送循环收到关闭信号，退出")
+			return
 		case <-sendMsgEvent:
+			// 处理发送事件
 			t := time.Now()
 			outLock.Lock()
 			i := 0
@@ -167,31 +247,37 @@ func ReseiveSendLoop() {
 			sentBox = outBox[:i]
 			outBox = outBox[i:]
 			outLock.Unlock()
-		default:
-			// 没有发送请求，继续接收流程
-		}
 
-		// 尝试接收一条短信
-		err := ReceiveSMS()
-		if err == nil {
-			// 成功读取到短信或没有错误，重置 backoff
-			backoff = 1 * time.Second
-		} else if err == io.EOF {
-			// 没有短信：等一会再尝试（不立即重连，避免频繁重连）
-			time.Sleep(backoff)
-			if backoff < maxBackoff {
-				backoff *= 2
+		default:
+			// 没有发送请求，尝试接收短信
+			err := ReceiveSMS()
+			if err == nil {
+				// 成功读取到短信或没有错误，重置 backoff
+				backoff = 1 * time.Second
+			} else if err == io.EOF {
+				// 没有短信：等一会再尝试
+				select {
+				case <-time.After(backoff):
+				case <-shutdownChan:
+					log.Info("接收发送循环收到关闭信号，退出")
+					return
+				}
+				if backoff < maxBackoff {
+					backoff *= 2
+				}
+			} else {
+				// 非 EOF 错误
+				log.Errorf("ReceiveSMS error: %v", err)
+				select {
+				case <-time.After(backoff):
+				case <-shutdownChan:
+					log.Info("接收发送循环收到关闭信号，退出")
+					return
+				}
+				if backoff < maxBackoff {
+					backoff *= 2
+				}
 			}
-			continue
-		} else {
-			// 非 EOF 错误：计数器会处理是否重置设备
-			log.Errorf("ReceiveSMS error: %v", err)
-			time.Sleep(backoff)
-			if backoff < maxBackoff {
-				backoff *= 2
-			}
-			// 如果 errCounter 触发了 GSM_Reset/HadReset，Reconnect 会在其它流程里触发或你可以在这里调用
-			continue
 		}
 
 		// 定期短暂停顿，避免忙循环
@@ -200,48 +286,77 @@ func ReseiveSendLoop() {
 }
 
 func StorageSMSLoop() {
+	defer wg.Done()
+
 	number := GSM_StateMachine.GetOwnNumber()
-	// 确保程序退出时关闭转发服务
-	defer func() {
-		if forwardSvc != nil {
-			forwardSvc.Close()
-		}
-	}()
 
 	for {
-		i := <-boxEvent
-		if i == 1 { // receive sms
-			if len(inBox) < 1 {
-				continue
+		select {
+		case <-shutdownChan:
+			log.Info("存储循环收到关闭信号，退出")
+			// 确保程序退出时关闭转发服务
+			if forwardSvc != nil {
+				forwardSvc.Close()
 			}
-			inLock.Lock()
-			// 深度复制数据，避免数据竞争
-			msgsToForward := make([]Msg, len(inBox))
-			copy(msgsToForward, inBox)
+			return
 
-			for _, msg := range inBox {
-				message.WsSendSMS(number, msg)
-			}
-			db.InsertSMSMany(inBox)
-			db.UpdateAbstract(inBox[len(inBox)-1])
-			// 如果开启了短信转发，则将短信转发给forward接收端。
-			forwardSvc.PutMsgs(msgsToForward)
+		case i := <-boxEvent:
+			if i == 1 { // receive sms
+				inLock.Lock()
+				if len(inBox) == 0 {
+					inLock.Unlock()
+					continue
+				}
 
-			inBox = []Msg{}
-			inLock.Unlock()
-		} else if i == 2 { // send sms
-			if len(sentBox) < 1 {
-				continue
+				// 深度复制数据，避免数据竞争
+				msgsToForward := make([]Msg, len(inBox))
+				copy(msgsToForward, inBox)
+
+				// 发送 WebSocket 通知
+				for _, msg := range inBox {
+					message.WsSendSMS(number, msg)
+				}
+
+				// 存储到数据库
+				db.InsertSMSMany(inBox)
+				db.UpdateAbstract(inBox[len(inBox)-1])
+				// 转发短信
+				forwardSvc.PutMsgs(msgsToForward)
+
+				inBox = []Msg{}
+				inLock.Unlock()
+
+			} else if i == 2 { // send sms
+				outLock.Lock()
+				if len(sentBox) == 0 {
+					outLock.Unlock()
+					continue
+				}
+
+				for _, msg := range sentBox {
+					log.Infof("SentSMS To %s with text: %s", msg.Number, msg.Text)
+					message.WsSendSMS(number, msg)
+				}
+				db.InsertSMSMany(sentBox)
+				db.UpdateAbstract(sentBox[len(sentBox)-1])
+				sentBox = []Msg{}
+				outLock.Unlock()
 			}
-			outLock.Lock()
-			for _, msg := range sentBox {
-				log.Infof("SentSMS To %s with text: %s", msg.Number, msg.Text)
-				message.WsSendSMS(number, msg)
-			}
-			db.InsertSMSMany(sentBox)
-			db.UpdateAbstract(sentBox[len(sentBox)-1])
-			sentBox = []Msg{}
-			outLock.Unlock()
 		}
+	}
+}
+
+// GetStats 获取服务统计信息（用于监控）
+func GetStats() map[string]interface{} {
+	inLock.RLock()
+	outLock.RLock()
+	defer inLock.RUnlock()
+	defer outLock.RUnlock()
+
+	return map[string]interface{}{
+		"inbox_count":   len(inBox),
+		"outbox_count":  len(outBox),
+		"sentbox_count": len(sentBox),
+		"err_count":     errCount,
 	}
 }
