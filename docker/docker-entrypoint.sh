@@ -17,8 +17,15 @@ else
     echo "警告: ATCONNECTION 环境变量未设置，使用默认配置"
 fi
 
+if [ -n "$PHONE_ID" ]; then
+  echo "配置PHONE_ID：$PHONE_ID"
+  sed -i "s|%PHONE_ID%|$PHONE_ID|g" /docker/gammu.conf
+else
+  echo "警告: PHONE_ID 环境变量未设置，使用默认配置"
+fi
+
 # 创建必要的目录
-mkdir -p /data/log /data/db /var/log/gammu
+mkdir -p /data/log /data/db /var/log/gammu /data/sms/inbox /data/sms/outbox /data/sms/processed  /data/sms/sent /data/sms/error
 
 # 检查配置文件是否存在
 if [ ! -f "/docker/gammu.conf" ]; then

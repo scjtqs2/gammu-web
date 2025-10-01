@@ -20,7 +20,7 @@ RUN CGO_ENABLED=1 go build -ldflags "-s -w" -o gammu-web
 FROM alpine:3.22 AS production
 
 #RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-RUN apk add --no-cache gammu-libs bash ca-certificates
+RUN apk add --no-cache gammu-dev gammu-libs gammu gammu-smsd bash ca-certificates curl jq
 # 设置上海时区
 RUN apk add --no-cache tzdata && \
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
@@ -29,6 +29,7 @@ RUN apk add --no-cache tzdata && \
 
 COPY --from=builder /build/gammu-web /app/
 COPY docker /docker
+RUN chmod +x /docker/*.sh
 
 ENV FORWARD_ENABLED="0"
 ENV FORWARD_URL="http://forwardsms:8080/api/v1/sms/receive"
@@ -44,3 +45,4 @@ ENV TZ="Asia/Shanghai"
 ENTRYPOINT ["/docker/docker-entrypoint.sh"]
 
 CMD ["/app/gammu-web","-gammu-conf","/docker/gammu.conf"]
+#CMD ["gammu-smsd", "-c", "/docker/gammu.conf"]
