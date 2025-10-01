@@ -1,5 +1,5 @@
 # 编译前端内容
-FROM node:20-alpine AS front
+FROM node:18-alpine AS front
 WORKDIR /build
 COPY ./ .
 RUN cd src-web && \
