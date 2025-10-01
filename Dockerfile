@@ -20,6 +20,11 @@ FROM alpine:3.22 AS production
 
 #RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 RUN apk add --no-cache gammu bash
+# 设置上海时区
+RUN apk add --no-cache tzdata && \
+    cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    echo "Asia/Shanghai" > /etc/timezone && \
+    apk del tzdata
 
 COPY --from=builder /build/gammu-web /app/
 COPY docker /docker
@@ -33,6 +38,7 @@ ENV LOG_PATH="/data/log/gammu-web.log"
 ENV USB_PORT="/dev/ttyUSB3"
 ENV ATCONNECTION="at115200"
 ENV PHONE_ID=""
+ENV TZ="Asia/Shanghai"
 
 ENTRYPOINT ["/docker/docker-entrypoint.sh"]
 
