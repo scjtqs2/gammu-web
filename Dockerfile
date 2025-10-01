@@ -1,10 +1,11 @@
 # 编译前端内容
-FROM node:18-alpine AS front
+FROM node:20-alpine AS front
 WORKDIR /build
 COPY ./ .
 RUN cd src-web && \
     npm install -g vite && \
     npm install && \
+    npm run build:css && \
     vite build
 
 FROM golang:1.24-alpine3.22 AS builder
