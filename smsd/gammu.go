@@ -185,7 +185,7 @@ func (sm *StateMachine) GetOwnNumber() string {
 	for {
 		entry, e := sm.GetMemory(C.MEM_ON, 1)
 		if e != nil {
-			log.Error("GammuGetMem", e)
+			log.Errorf("GammuGetMem %v", e)
 			log.Warn("GammuGetMem", "Tring to get memory of SIM card again after 5 seconds......")
 			time.Sleep(5 * time.Second)
 			continue
@@ -203,7 +203,7 @@ func (sm *StateMachine) GetCountryCode() string {
 	netinfo := C.GSM_NetworkInfo{}
 	for {
 		if e := C.GSM_GetNetworkInfo(sm.g, &netinfo); e != C.ERR_NONE {
-			log.Error("GetCountryCode", e)
+			log.Errorf("GetCountryCode %v", e)
 			log.Warn("GammuGetCountryCode", "Tring to get country code of phone again after 5 seconds......")
 			time.Sleep(5 * time.Second)
 			continue

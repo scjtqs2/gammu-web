@@ -2,14 +2,15 @@ package main
 
 import (
 	"flag"
+	"io"
+	"os"
+
 	"github.com/ctaoist/gammu-web/config"
 	"github.com/ctaoist/gammu-web/db"
 	"github.com/ctaoist/gammu-web/smsd"
 	"github.com/ctaoist/gammu-web/web"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"
-	"io"
-	"os"
 )
 
 func init() {
@@ -66,7 +67,7 @@ func main() {
 	if config.LogFile != "" {
 		f, err := os.OpenFile(config.LogFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 		if err != nil {
-			log.Fatal("LogInit", err)
+			log.Fatalf("LogInit %v", err)
 		}
 		defer f.Close()
 		log.SetOutput(f)

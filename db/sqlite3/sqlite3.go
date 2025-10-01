@@ -74,7 +74,7 @@ func (s *Database) Open() error {
 
 func (s *Database) Query(str string) *sql.Rows {
 	if rows, err := s.db.Query(str); err != nil {
-		log.Error("Sqlite3Query", err)
+		log.Errorf("Sqlite3Query %v", err)
 		return &sql.Rows{}
 	} else {
 		return rows
@@ -84,12 +84,12 @@ func (s *Database) Query(str string) *sql.Rows {
 func (s *Database) Insert(query string, data []interface{}) {
 	stmt, err := s.db.Prepare(query)
 	if err != nil {
-		log.Error("Sqlite3Prepare", err)
+		log.Errorf("Sqlite3Prepare %v", err)
 	}
 
 	_, err = stmt.Exec(data...)
 	if err != nil {
-		log.Error("Sqlite3Insert", err)
+		log.Errorf("Sqlite3Insert %v", err)
 	}
 }
 

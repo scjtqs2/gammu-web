@@ -66,7 +66,7 @@ func HeartBeatLoop() {
 			// log.Debug("WsHeart", number, " has ", len(v), " websocket connection(s)")
 			for _, ws := range v {
 				if e := ws.Conn.WriteMessage(websocket.TextMessage, []byte(heart)); e != nil {
-					log.Error("WsHeartBeat", e)
+					log.Errorf("WsHeartBeat %v", e)
 				}
 			}
 		}
@@ -102,7 +102,7 @@ func WsSendSMS(number string, msg Msg) {
 	// m := WsMsg{msg}
 	b, err := json.Marshal(&m)
 	if err != nil {
-		log.Error("JsonMarshal", err)
+		log.Errorf("JsonMarshal %v", err)
 		return
 	}
 	for _, w := range WS[number] {
