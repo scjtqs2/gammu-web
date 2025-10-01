@@ -10,7 +10,7 @@
 package smsd
 
 /*
-#cgo pkg-config: gammu
+#include <stdlib.h>
 #include <gammu.h>
 
 void sendCallback(GSM_StateMachine *sm, int status, int msgRef, void *data) {
@@ -20,17 +20,17 @@ void sendCallback(GSM_StateMachine *sm, int status, int msgRef, void *data) {
 		*((GSM_Error *) data) = ERR_UNKNOWN;
 	}
 }
-
 void setStatusCallback(GSM_StateMachine *sm, GSM_Error *status) {
 	GSM_SetSendSMSStatusCallback(sm, sendCallback, status);
 }
-
 GSM_Debug_Info *debug_info;
 void setDebug() {
 	debug_info = GSM_GetGlobalDebug();
 	GSM_SetDebugFileDescriptor(stderr, TRUE, debug_info);
 	GSM_SetDebugLevel("textall", debug_info);
 }
+
+#cgo pkg-config: gammu
 */
 import "C"
 import (

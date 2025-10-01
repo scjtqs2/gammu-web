@@ -8,29 +8,64 @@ RUN cd src-web && \
     npm run build:css && \
     vite build
 
-FROM golang:1.24-alpine3.22 AS builder
-#RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-#RUN go env -w GOPROXY="http://goproxy.cn,direct"
+# 编译 Go 后端
+FROM golang:1.25-bookworm AS builder
+
+# 设置国内镜像源（可选）
+#RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+# sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list
+
+# 设置 Go 代理（可选）
+# RUN go env -w GOPROXY="https://goproxy.cn,direct"
 
 WORKDIR /build
 COPY --from=front /build /build
-RUN apk add build-base gammu-dev pkgconfig gcc musl-dev make cmake
+
+# 安装 Debian 构建依赖
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libgammu-dev \
+    pkg-config \
+    gcc \
+    make \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+# 编译 Go 程序
 RUN CGO_ENABLED=1 go build -ldflags "-s -w" -o gammu-web
 
-FROM alpine:3.22 AS production
+# 生产环境
+FROM debian:bookworm-slim AS production
 
-#RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-RUN apk add --no-cache gammu-dev gammu-libs gammu gammu-smsd bash ca-certificates curl jq
+# 设置国内镜像源（可选）
+#RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+# sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list
+
+# 安装运行时依赖
+RUN apt-get update && apt-get install -y \
+    libgammu-dev \
+    gammu \
+    gammu-smsd \
+    bash \
+    ca-certificates \
+    curl \
+    jq \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
 # 设置上海时区
-RUN apk add --no-cache tzdata && \
-    cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
-    echo "Asia/Shanghai" > /etc/timezone && \
-    apk del tzdata
+RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    echo "Asia/Shanghai" > /etc/timezone
 
+# 复制编译好的程序
 COPY --from=builder /build/gammu-web /app/
 COPY docker /docker
 RUN chmod +x /docker/*.sh
 
+# 创建必要的目录
+RUN mkdir -p /data/db /data/log
+
+# 环境变量
 ENV FORWARD_ENABLED="0"
 ENV FORWARD_URL="http://forwardsms:8080/api/v1/sms/receive"
 ENV FORWARD_SECRET=""
@@ -45,4 +80,3 @@ ENV TZ="Asia/Shanghai"
 ENTRYPOINT ["/docker/docker-entrypoint.sh"]
 
 CMD ["/app/gammu-web","-gammu-conf","/docker/gammu.conf"]
-#CMD ["gammu-smsd", "-c", "/docker/gammu.conf"]
