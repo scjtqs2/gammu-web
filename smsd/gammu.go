@@ -102,7 +102,7 @@ type StateMachine struct {
 
 // Creates new state maschine using cf configuration file or default configuration file `~/.gammurc` if cf == "".
 func NewStateMachine(cf string) (*StateMachine, error) {
-	// C.setDebug()
+	C.setDebug()
 	var config *C.INI_Section
 	if cf != "" {
 		cs := C.CString(cf)
