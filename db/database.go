@@ -75,7 +75,7 @@ func GetAbstract(page int, number string) []Msg {
 		msg := Msg{}
 		err := rows.Scan(&msg.ID, &msg.SelfNumber, &msg.Number, &msg.Text, &msg.Time)
 		if err != nil {
-			log.Error("GetAbstract", err)
+			log.Errorf("GetAbstract %v", err)
 		}
 		// msg.Time, _ = time.Parse("2006-01-02 15:04:05", t)
 		msgs = append(msgs, msg)

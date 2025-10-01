@@ -40,7 +40,7 @@ func errCounter(e error) {
 	}
 	errCount = errCount + 1
 	if errCount >= 3 {
-		log.Warn("GSMReset", "errCount >= 3, GSM hard reset")
+		log.Warn("GSMReset errCount >= 3, GSM hard reset")
 		GSM_StateMachine.HardReset()
 	}
 }
@@ -58,8 +58,8 @@ func Init(config string) {
 	if e := GSM_StateMachine.Connect(); e != nil {
 		log.Fatalf("GammuInit %v", e)
 	}
-	log.Infof("GammuGetCountryCode", "Country code of phone: %s", GSM_StateMachine.GetCountryCode())
-	log.Infof("GammuGetOwnNumber", "Own phone number: %s", GSM_StateMachine.GetOwnNumber())
+	log.Infof("GammuGetCountryCode Country code of phone: %s", GSM_StateMachine.GetCountryCode())
+	log.Infof("GammuGetOwnNumber Own phone number: %s", GSM_StateMachine.GetOwnNumber())
 
 	forwardSvc = initForward()
 	go ReseiveSendLoop()
@@ -107,18 +107,18 @@ func ReceiveSMS() {
 		c_gsm_deleteSMS(GSM_StateMachine, lastSms)
 		return
 	}
-	log.Debugf("Test", "%+v\n", sms)
+	log.Debugf("Test %+v\n", sms)
 	if sms.Report {
 		m := strings.TrimSpace(sms.Body)
 		if strings.ToLower(m) == "delivered" {
-			log.Debugf("Delivered SMS", "%+v\n", sms)
+			log.Debugf("Delivered SMS %+v\n", sms)
 			boxEvent <- 2
 		}
 	} else {
 		// Save a message in Inbox
 		msg := Msg{"", GSM_StateMachine.GetOwnNumber(), sms.Number, sms.Body, false, sms.Time}
 		msg.GenerateId()
-		log.Infof("ReceivedSMS", "From %s with text: %s\n", msg.Number, msg.Text)
+		log.Infof("ReceivedSMS From %s with text: %s\n", msg.Number, msg.Text)
 		inLock.Lock()
 		inBox = append(inBox, msg)
 		inLock.Unlock()
@@ -185,7 +185,7 @@ func StorageSMSLoop() {
 			}
 			outLock.Lock()
 			for _, msg := range sentBox {
-				log.Infof("SentSMS", "To %s with text: %s", msg.Number, msg.Text)
+				log.Infof("SentSMS To %s with text: %s", msg.Number, msg.Text)
 				message.WsSendSMS(number, msg)
 			}
 			db.InsertSMSMany(sentBox)

@@ -40,11 +40,11 @@ time DATETIME NOT NULL);`
 
 func (s *Database) Init() {
 	if e := s.Exec(__CREATESQL1); e != nil {
-		log.Fatal("CreateTable1", e)
+		log.Fatalf("CreateTable1 %v", e)
 	}
 
 	if e := s.Exec(__CREATESQL2); e != nil {
-		log.Fatal("CreateTable2", e)
+		log.Fatalf("CreateTable2 %v", e)
 	}
 }
 

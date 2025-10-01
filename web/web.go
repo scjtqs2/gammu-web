@@ -93,7 +93,7 @@ func RunServer(port string) {
 	// r.PathPrefix("/").Handler(http.StripPrefix("/", http.FileServer(getFileSystem(web))))
 	spa := spaHandler{staticPath: "dist", indexPath: "index.html"}
 	r.PathPrefix("/").Handler(spa)
-	log.Info("RunServer", "Start listening 0.0.0.0:"+port)
+	log.Info("RunServer Start listening 0.0.0.0:" + port)
 
 	go message.HeartBeatLoop()
 	http.ListenAndServe("0.0.0.0:"+port, r)

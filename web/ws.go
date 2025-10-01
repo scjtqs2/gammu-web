@@ -24,7 +24,7 @@ var upgrader = websocket.Upgrader{
 func wsHandler(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Fatal("WSUpgrade", err)
+		log.Fatalf("WSUpgrade %v", err)
 	}
 	number := smsd.GetOwnNumber()
 	id := message.GenerateId()
@@ -81,7 +81,7 @@ func logHandler(w http.ResponseWriter, r *http.Request) {
 
 func clearLog(w http.ResponseWriter, r *http.Request) {
 	if err := os.Truncate(config.LogFile, 0); err != nil {
-		log.Error("ClearLog", "Failed to truncate: ", err)
+		log.Errorf("ClearLog Failed to truncate: %v", err)
 		json.NewEncoder(w).Encode(map[string]interface{}{"retCode": -1, "errorMsg": "can't clear log file: " + err.Error()})
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"retCode": 0, "errorMsg": ""})

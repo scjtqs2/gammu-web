@@ -26,7 +26,7 @@ func sendSMS(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"retCode": -1, "errorMsg": "Parse parameters missing"})
 		return
 	}
-	log.Debugf("APISendSMS", "Plan to send SMS to %s with text: %s", params["number"], params["text"])
+	log.Debugf("APISendSMS Plan to send SMS to %s with text: %s", params["number"], params["text"])
 
 	// if e := sms.SendSMS(params["number"], params["text"]); e != nil {
 	// 	json.NewEncoder(w).Encode(map[string]interface{}{"retCode": -1, "errorMsg": e.Error()})
@@ -74,7 +74,7 @@ func getMessages(w http.ResponseWriter, r *http.Request) {
 		var e error
 		page, e = strconv.Atoi(p)
 		if e != nil {
-			log.Error("ParseParams", e)
+			log.Errorf("ParseParams %v", e)
 		}
 	}
 	if len(number) <= 0 {

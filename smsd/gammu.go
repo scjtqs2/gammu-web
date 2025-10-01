@@ -204,7 +204,7 @@ func (sm *StateMachine) GetCountryCode() string {
 	for {
 		if e := C.GSM_GetNetworkInfo(sm.g, &netinfo); e != C.ERR_NONE {
 			log.Errorf("GetCountryCode %v", e)
-			log.Warn("GammuGetCountryCode", "Tring to get country code of phone again after 5 seconds......")
+			log.Warnf("GammuGetCountryCode %s", "Tring to get country code of phone again after 5 seconds......")
 			time.Sleep(5 * time.Second)
 			continue
 		}
