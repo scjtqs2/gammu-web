@@ -36,4 +36,4 @@ ENV PHONE_ID=""
 
 ENTRYPOINT ["/docker/docker-entrypoint.sh"]
 
-CMD ["/app/gammu-web","-c","/docker/gammu.conf"]
+CMD ["/app/gammu-web","-gammu-conf","/docker/gammu.conf"]
