@@ -18,36 +18,64 @@ export const LoginPage = () => {
   const [connStatus, setConnStatus] = useState(false);
   const [remember, setRemember] = useState(getToken().length > 0);
 
-  useEffect(() => {
-    // console.log(token === '');
-  }, []);
+    useEffect(() => {
+        // 初始化时，如果有保存的token，设置到状态中
+        const savedToken = getToken();
+        if (savedToken && savedToken.length > 0) {
+            setToken(savedToken);
+            setRemember(true);
+        } else {
+            setRemember(false);
+        }
+    }, []);
 
   const checkRemember = (e: any) => {
     setRemember(e.target.checked);
   };
 
-  const connect = () => {
-    setConnStatus(true);
-    Global.token = token;
-    if (remember) {
-      setStorageToken(token);
-    } else {
-      setStorageToken('');
-    }
+    const connect = () => {
+        setConnStatus(true);
+        Global.token = token;
 
-    verifyToken().then(resp => {
-      if (resp.retCode === 0) {
-        setLogStatus(true);
-        Global.phoneInfo = { loadFlag: false };
-        getPhoneInfo().then(resp => {
-          Global.phoneInfo = { loadFlag: true, ...resp.data };
-          ws_connect();
-          navigate("/sms");
+        // 只有在remember为true时才保存token到localStorage
+        if (remember) {
+            setStorageToken(token);
+        } else {
+            setStorageToken(''); // 清除保存的token
+        }
+
+        verifyToken().then(resp => {
+            if (resp.retCode === 0) {
+                setLogStatus(true); // 设置登录状态
+
+                // 如果不记住token，只在内存中保存
+                if (!remember) {
+                    Global.token = token; // 只在全局变量中保存
+                }
+
+                Global.phoneInfo = { loadFlag: false };
+                getPhoneInfo().then(resp => {
+                    Global.phoneInfo = { loadFlag: true, ...resp.data };
+                    ws_connect();
+                    navigate("/sms");
+                });
+            } else {
+                // token验证失败，重置登录状态
+                setLogStatus(false);
+                if (!remember) {
+                    Global.token = ''; // 清除内存中的token
+                }
+            }
+            setConnStatus(false);
+        }).catch(error => {
+            // 请求失败时也重置状态
+            setLogStatus(false);
+            if (!remember) {
+                Global.token = '';
+            }
+            setConnStatus(false);
         });
-      }
-      setConnStatus(false);
-    });
-  };
+    };
 
   return (<div className='container'>
     <div className="form-control w-full">

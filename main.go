@@ -64,6 +64,9 @@ func main() {
 		log.SetLevel(log.DebugLevel)
 	}
 
+	if os.Getenv("TEST_ONLY") == "true" || os.Getenv("TEST_ONLY") == "1" {
+		config.TestMode = true
+	}
 	if config.LogFile != "" {
 		f, err := os.OpenFile(config.LogFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 		if err != nil {
@@ -76,7 +79,7 @@ func main() {
 	if logPath != "" {
 		config.LogFile = logPath
 	}
-	
+
 	log.Info("Init", "Initializing...")
 	db.Init()
 

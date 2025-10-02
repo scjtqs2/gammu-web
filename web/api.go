@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/ctaoist/gammu-web/config"
 	"github.com/ctaoist/gammu-web/db"
 	"github.com/ctaoist/gammu-web/smsd"
 	log "github.com/sirupsen/logrus"
@@ -15,6 +16,10 @@ func verifyToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func getPhoneInfo(w http.ResponseWriter, r *http.Request) {
+	if config.TestMode {
+		json.NewEncoder(w).Encode(map[string]interface{}{"retCode": 0, "errorMsg": "", "data": map[string]string{"ownNumber": "xxxxxxxxxxxx"}})
+		return
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"retCode": 0, "errorMsg": "", "data": map[string]string{"ownNumber": smsd.GSM_StateMachine.GetOwnNumber()}})
 }
 

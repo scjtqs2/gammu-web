@@ -10,3 +10,4 @@ web/dist/*
 src-web/node_modules
 src-web/package-lock.json
 src-web/src-backup
+src-web/dist
