@@ -172,10 +172,10 @@ func (f *ForwardConn) retryForward(msg Msg, maxRetries int) bool {
 		time.Sleep(time.Duration(i+1) * time.Second) // 指数退避
 
 		if err := f.forwardSMS(msg); err == nil {
-			log.Infof("重试成功: 短信ID %d (第%d次重试)", msg.ID, i+1)
+			log.Infof("重试成功: 短信ID %s (第%d次重试)", msg.ID, i+1)
 			return true
 		} else {
-			log.Warnf("重试失败: 短信ID %d (第%d次重试): %v", msg.ID, i+1, err)
+			log.Warnf("重试失败: 短信ID %s (第%d次重试): %v", msg.ID, i+1, err)
 		}
 	}
 	return false
@@ -240,13 +240,13 @@ func (f *ForwardConn) forwardSMS(record Msg) error {
 	}
 
 	if resp.StatusCode == http.StatusOK {
-		log.Infof("✓ 短信ID: %d 成功转发 (HTTP %d)", record.ID, resp.StatusCode)
+		log.Infof("✓ 短信ID: %s 成功转发 (HTTP %d)", record.ID, resp.StatusCode)
 		if len(body) > 0 {
 			log.Debugf("服务响应: %s", string(body))
 		}
 		return nil
 	} else {
-		return fmt.Errorf("短信ID: %d 转发失败 - HTTP 状态码: %d, 响应: %s",
+		return fmt.Errorf("短信ID: %s 转发失败 - HTTP 状态码: %d, 响应: %s",
 			record.ID, resp.StatusCode, string(body))
 	}
 }
