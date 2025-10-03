@@ -1,0 +1,45 @@
+version: "3"
+services:
+  # https://github.com/scjtqs2/ForwardSMS
+  forwardsms:
+    image:  ghcr.io/scjtqs2/forwardsms/forwardsms:latest
+    environment:
+      - FORWARD_SECRET=your_shared_secret_here
+      - TZ=Asia/Shanghai
+      - HTTP_PORT=8080
+    volumes:
+      # 挂载上面配置的推送文件
+      - ./forward.yaml:/data/config/forward.yaml
+    restart: always
+    expose:
+      - 8080
+
+  # https://github.com/scjtqs2/gammu-web
+  gammu-web:
+    image: ghcr.io/scjtqs2/gammu-web:latest
+    environment:
+      - FORWARD_ENABLED=1
+      # 写死
+      - FORWARD_URL=http://forwardsms:8080/api/v1/sms/receive
+      # 和forwardsms里面的要一致。
+      - FORWARD_SECRET=your_shared_secret_here
+      - TZ=Asia/Shanghai
+      # 转发通知携带的标识。
+      - PHONE_ID=SMS1_186xxxxxxxx
+      - ATCONNECTION=at115200
+      # ec200t-cn 默认的管理接口就是/dev/ttyUSB1(能同时收发短信，还能读取来电显示数据用来达到转发来电通知)。根据实际情况自行调整。
+      - USB_PORT=/dev/ttyUSB1
+      - API_PORT=21234
+      # web网页访问用到。
+      - API_TOKEN=your_shared_token_here
+      - GAMMU_DEBUG=false
+      - DEBUG=0
+      - CALL_FORWARD_ENABLED=true
+      - CALL_FORWARD_URL=http://forwardsms:8080/api/v1/call/receive
+    volumes:
+      - ./data:/data
+    # 加了这个，就不用挨个去映射 /dev/ttyUSBx了
+    privileged: true
+    restart: always
+    ports:
+      - 21234:21234
