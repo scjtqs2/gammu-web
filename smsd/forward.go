@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -214,10 +215,29 @@ func (f *ForwardConn) forwardSMS(record Msg) error {
 		return nil
 	}
 
+	// 创建自定义解析器避免DNS问题
+	dialer := &net.Dialer{
+		Timeout:   time.Duration(f.ForwardTimeout) * time.Second / 2,
+		KeepAlive: 30 * time.Second,
+	}
+
+	transport := &http.Transport{
+		DialContext:         dialer.DialContext,
+		MaxIdleConns:        10,
+		IdleConnTimeout:     30 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+		DisableCompression:  true,
+	}
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   time.Duration(f.ForwardTimeout) * time.Second,
+	}
+
 	reqData := SMSRequest{
 		Secret:    f.ForwardSecret,
 		Number:    record.Number,
-		Time:      record.Time.Format("2006-01-02 15:04:05"), // 使用短信本身的时间
+		Time:      record.Time.Format("2006-01-02 15:04:05"),
 		Text:      record.Text,
 		Source:    "gammu-web",
 		PhoneID:   f.getPhoneId(record),
@@ -225,7 +245,6 @@ func (f *ForwardConn) forwardSMS(record Msg) error {
 		Timestamp: strconv.FormatInt(record.Time.Unix(), 10),
 	}
 
-	// 序列化为 JSON
 	jsonData, err := json.Marshal(reqData)
 	if err != nil {
 		return fmt.Errorf("序列化JSON失败: %v", err)
@@ -233,12 +252,6 @@ func (f *ForwardConn) forwardSMS(record Msg) error {
 
 	log.Debugf("尝试转发短信: %s 到: %s", record.Text, f.ForwardURL)
 
-	// 创建带超时的HTTP客户端
-	client := &http.Client{
-		Timeout: time.Duration(f.ForwardTimeout) * time.Second,
-	}
-
-	// 创建请求
 	req, err := http.NewRequest("POST", f.ForwardURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("创建HTTP请求失败: %v", err)
@@ -246,14 +259,12 @@ func (f *ForwardConn) forwardSMS(record Msg) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "Gammu-SMSD-Go/1.0")
 
-	// 发送请求
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("发送HTTP请求失败: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// 读取响应
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("读取响应失败: %v", err)

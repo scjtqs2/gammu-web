@@ -392,44 +392,34 @@ func (sm *StateMachine) SendLongSMS(number, text string, report bool) error {
 }
 
 func encodeUTF8(in *C.uchar) string {
-	// 检查输入指针是否为空
 	if in == nil {
 		log.Warn("encodeUTF8: 收到空指针输入")
 		return ""
 	}
 
-	// 获取 Unicode 字符串长度
+	// 获取长度前检查指针有效性
 	l := C.UnicodeLength(in)
-
-	// 检查长度是否合理
-	if l <= 0 {
+	if l <= 0 || l > 10000 {
 		return ""
 	}
 
-	// 设置合理的最大长度限制（避免内存过度分配）
-	const maxReasonableLength = 10000 // 短信通常不会超过这个长度
-	if l > maxReasonableLength {
-		log.Warnf("encodeUTF8: 字符串长度 %d 超过合理范围，限制为 %d", l, maxReasonableLength)
-		l = maxReasonableLength
+	// 使用更安全的方式分配内存
+	outSize := int(l)*3 + 1 // UTF8可能最多3字节每个字符
+	out := (*C.char)(C.malloc(C.size_t(outSize)))
+	defer C.free(unsafe.Pointer(out))
+
+	if out == nil {
+		log.Error("encodeUTF8: 内存分配失败")
+		return ""
 	}
 
-	// 分配输出缓冲区（增加额外空间确保安全）
-	outSize := l*2 + 1 // 额外的一个字符用于确保以null结尾
-	out := make([]C.char, outSize)
-
-	// 确保缓冲区以null结尾
-	out[outSize-1] = 0
+	// 确保以null结尾
+	C.memset(unsafe.Pointer(out), 0, C.size_t(outSize))
 
 	// 编码UTF8
-	C.EncodeUTF8(&out[0], in)
+	C.EncodeUTF8(out, in)
 
-	// 转换为Go字符串前检查第一个字符是否为null
-	if out[0] == 0 {
-		log.Warn("encodeUTF8: 编码结果为空字符串")
-		return ""
-	}
-
-	return C.GoString(&out[0])
+	return C.GoString(out)
 }
 
 func goTime(t *C.GSM_DateTime) time.Time {

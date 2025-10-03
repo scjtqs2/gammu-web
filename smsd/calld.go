@@ -53,33 +53,36 @@ func PushCallEvent(ev CallRecord) {
 
 //export goCallHandler
 func goCallHandler(s *C.GSM_StateMachine, call *C.GSM_Call, user_data unsafe.Pointer) {
-	log.Infof("goCallHandler triggered! Call status raw value: %d", call.Status)
-	// 把 C.GSM_Call 转成 Go 的 CallRecord，并推送
-	number := encodeUTF8(&call.PhoneNumber[0])
-	status := call.Status
+	// 使用匿名函数将工作推送到主Go线程执行
+	go func() {
+		log.Infof("goCallHandler triggered! Call status raw value: %d", call.Status)
 
-	var callType string
-	switch status {
-	case C.GSM_CALL_IncomingCall:
-		callType = "incoming"
-	case C.GSM_CALL_OutgoingCall:
-		callType = "outgoing"
-	case C.GSM_CALL_CallRemoteEnd, C.GSM_CALL_CallLocalEnd, C.GSM_CALL_CallEnd:
-		callType = "ended"
-	default:
-		// !!! --- 增加 default 分支来捕获所有未知状态 --- !!!
-		log.Warnf("Received unhandled call status: %d for number: %s", status, number)
-		callType = "unknown"
-	}
+		// 在Go线程中安全地复制C数据
+		number := C.GoString((*C.char)(unsafe.Pointer(&call.PhoneNumber[0])))
+		status := call.Status
 
-	rec := CallRecord{
-		Time:     time.Now(),
-		Number:   number,
-		Name:     "", // 如果 GSM_Call 中有名字字段可填
-		Type:     callType,
-		Duration: 0, // 通常 GSM_Call 不带时长信息
-	}
-	PushCallEvent(rec)
+		var callType string
+		switch status {
+		case C.GSM_CALL_IncomingCall:
+			callType = "incoming"
+		case C.GSM_CALL_OutgoingCall:
+			callType = "outgoing"
+		case C.GSM_CALL_CallRemoteEnd, C.GSM_CALL_CallLocalEnd, C.GSM_CALL_CallEnd:
+			callType = "ended"
+		default:
+			log.Warnf("Received unhandled call status: %d for number: %s", status, number)
+			callType = "unknown"
+		}
+
+		rec := CallRecord{
+			Time:     time.Now(),
+			Number:   number,
+			Name:     "",
+			Type:     callType,
+			Duration: 0,
+		}
+		PushCallEvent(rec)
+	}()
 }
 
 // registerCallCallback 注册callback
