@@ -105,6 +105,11 @@ func goCallHandler(s *C.GSM_StateMachine, call *C.GSM_Call, user_data unsafe.Poi
 	}
 
 	PushCallEvent(rec)
+	// 通话处理后，如果是来电，延迟一段时间让模块稳定
+	if callType == "incoming" {
+		log.Info("通话事件处理完成，等待模块稳定...")
+		time.Sleep(2 * time.Second)
+	}
 }
 
 // registerCallCallback 注册callback

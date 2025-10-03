@@ -39,6 +39,77 @@ var (
 	callCacheLock          sync.RWMutex
 )
 
+type SMSReadError struct {
+	Count     int
+	LastError error
+	LastTime  time.Time
+}
+
+var smsReadError SMSReadError
+
+// 改进的错误计数器，专门处理短信读取错误
+func smsErrorCounter(e error) {
+	now := time.Now()
+
+	// 如果距离上次错误超过1分钟，重置计数器
+	if now.Sub(smsReadError.LastTime) > time.Minute {
+		smsReadError.Count = 0
+		smsReadError.LastError = nil
+	}
+
+	if smsReadError.LastError != nil && smsReadError.LastError.Error() == e.Error() {
+		smsReadError.Count++
+	} else {
+		smsReadError.LastError = e
+		smsReadError.Count = 1
+	}
+	smsReadError.LastTime = now
+
+	log.Warnf("短信读取错误计数: %d/3, 错误: %v", smsReadError.Count, e)
+
+	// 连续3次错误，执行重置
+	if smsReadError.Count >= 3 {
+		log.Warn("检测到连续3次短信读取失败，执行连接重置...")
+		if resetErr := resetGSMConnection(); resetErr != nil {
+			log.Errorf("连接重置失败: %v", resetErr)
+		} else {
+			log.Info("连接重置成功，重置错误计数器")
+			smsReadError.Count = 0
+			smsReadError.LastError = nil
+		}
+	}
+}
+
+// 重置GSM连接的统一函数
+func resetGSMConnection() error {
+	if GSM_StateMachine == nil {
+		return fmt.Errorf("GSM状态机未初始化")
+	}
+
+	log.Info("开始重置GSM连接...")
+
+	// 方法1: 软重置
+	if err := GSM_StateMachine.Reset(); err != nil {
+		log.Warnf("软重置失败: %v，尝试硬重置", err)
+
+		// 方法2: 硬重置
+		if err := GSM_StateMachine.HardReset(); err != nil {
+			log.Warnf("硬重置失败: %v，尝试重新连接", err)
+
+			// 方法3: 重新连接
+			if err := GSM_StateMachine.Reconnect(); err != nil {
+				log.Errorf("重新连接失败: %v", err)
+				return err
+			}
+		}
+	}
+
+	// 重置后等待设备稳定
+	time.Sleep(3 * time.Second)
+	log.Info("GSM连接重置完成")
+	return nil
+}
+
 func errCounter(e error) {
 	if lastErr != e {
 		lastErr = e
@@ -197,7 +268,7 @@ func ReceiveSMS() error {
 			}
 		}
 
-		errCounter(err)
+		smsErrorCounter(err)
 		return err
 	}
 

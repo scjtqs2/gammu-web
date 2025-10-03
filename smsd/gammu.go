@@ -637,32 +637,44 @@ func (sm *StateMachine) safeDeleteSMS(msms *C.GSM_MultiSMSMessage) error {
 
 // 重置短信状态 - 使用现有的函数
 func (sm *StateMachine) ResetSMSStatus() error {
-	// 方法1: 使用通用的重置函数
+	log.Info("开始重置短信状态...")
+
+	// 方法1: 软重置
 	if e := C.GSM_Reset(sm.g, 0); e != C.ERR_NONE {
-		return NewError("Reset", e)
+		log.Warnf("软重置失败: %v，尝试硬重置", ToGSMError(e))
+
+		// 方法2: 硬重置
+		if e := C.GSM_Reset(sm.g, 1); e != C.ERR_NONE {
+			log.Warnf("硬重置失败: %v，尝试重新连接", ToGSMError(e))
+
+			// 方法3: 重新连接
+			return sm.Reconnect()
+		}
 	}
 
-	// 方法2: 重新初始化连接
-	if err := sm.Reconnect(); err != nil {
-		return err
-	}
-
+	// 重置后等待设备稳定
+	time.Sleep(2 * time.Second)
+	log.Info("短信状态重置完成")
 	return nil
 }
 
 // 重新连接
 func (sm *StateMachine) Reconnect() error {
+	log.Info("开始重新连接GSM模块...")
+
 	if sm.IsConnected() {
 		if err := sm.Disconnect(); err != nil {
 			log.Warnf("断开连接失败: %v", err)
 		}
 	}
 
-	time.Sleep(2 * time.Second)
+	// 等待更长时间确保完全断开
+	time.Sleep(3 * time.Second)
 
 	if err := sm.Connect(); err != nil {
 		return fmt.Errorf("重新连接失败: %v", err)
 	}
 
+	log.Info("GSM模块重新连接成功")
 	return nil
 }
