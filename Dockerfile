@@ -72,6 +72,9 @@ ENV TZ="Asia/Shanghai"
 ENV DEBUG="0"
 # 打印gammu的debug日志
 ENV GAMMU_DEBUG="0"
+# 来电转发
+ENV CALL_FORWARD_ENABLED="false"
+ENV CALL_FORWARD_URL="http://forwardsms:8080/api/v1/call/receive"
 
 ENTRYPOINT ["/docker/docker-entrypoint.sh"]
 

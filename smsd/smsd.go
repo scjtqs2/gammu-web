@@ -70,8 +70,18 @@ func Init(config string) {
 	}
 
 	log.Infof("GammuGetCountryCode Country code of phone: %s", GSM_StateMachine.GetCountryCode())
-	log.Infof("GammuGetOwnNumber Own phone number: %s", GSM_StateMachine.GetOwnNumber())
 
+	// 获取并验证本机号码
+	ownNumber = GSM_StateMachine.GetOwnNumber()
+	if normalized, err := NormalizePhoneNumber(ownNumber); err != nil {
+		log.Errorf("本机号码格式无效: %s, 错误: %v", ownNumber, err)
+		// 可以设置一个默认值或尝试修复
+		GSM_StateMachine.number = "+8618611500513" // 使用示例号码
+	} else {
+		GSM_StateMachine.number = normalized
+	}
+
+	log.Infof("GammuGetOwnNumber Own phone number: %s", GSM_StateMachine.GetOwnNumber())
 	forwardSvc = initForward()
 
 	// 启动工作协程
@@ -145,12 +155,11 @@ func SendSMS(phone_number, text string) error {
 		return fmt.Errorf("手机号或短信内容不能为空")
 	}
 
-	if phone_number[0] != '+' {
-		phone_number = GSM_StateMachine.country + phone_number
-	}
+	// 使用统一的号码格式化函数
+	formattedNumber := AddCountryCode(phone_number)
 
 	t := time.Now()
-	msg := Msg{"", GSM_StateMachine.GetOwnNumber(), phone_number, text, true, t}
+	msg := Msg{"", GSM_StateMachine.GetOwnNumber(), formattedNumber, text, true, t}
 	msg.GenerateId()
 
 	outLock.Lock()
@@ -172,10 +181,22 @@ func ReceiveSMS() error {
 	sms, err := GSM_StateMachine.GetSMS()
 	if err != nil {
 		if err == io.EOF {
-			// 没有短信 —— 正常，返回 EOF 由上层循环决定是否重连/等待
 			return io.EOF
 		}
 		log.Errorf("读取短信失败: %v", err)
+
+		// 增加错误恢复机制
+		if strings.Contains(err.Error(), "segment") ||
+			strings.Contains(err.Error(), "memory") ||
+			strings.Contains(err.Error(), "invalid") {
+			log.Warn("检测到内存相关错误，尝试重置GSM状态...")
+			if resetErr := GSM_StateMachine.ResetSMSStatus(); resetErr != nil {
+				log.Errorf("重置GSM状态失败: %v", resetErr)
+			} else {
+				log.Info("GSM状态重置成功")
+			}
+		}
+
 		errCounter(err)
 		return err
 	}

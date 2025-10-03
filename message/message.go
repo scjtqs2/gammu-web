@@ -74,32 +74,32 @@ func HeartBeatLoop() {
 }
 
 func WsSendSMS(number string, msg Msg) {
-	// 创建一个临时结构体来处理序列化
-	type TempMsg struct {
-		ID         string `json:"id"`
-		SelfNumber string `json:"self_number"`
-		Number     string `json:"number"`
-		Text       string `json:"text"`
-		Sent       bool   `json:"sent"`
-		Time       string `json:"time"` // 使用字符串格式
-	}
-
-	type TempWsMsg struct {
-		Msg TempMsg `json:"msg"`
-	}
-
-	// 转换时间格式
-	tempMsg := TempMsg{
-		ID:         msg.ID,
-		SelfNumber: msg.SelfNumber,
-		Number:     msg.Number,
-		Text:       msg.Text,
-		Sent:       msg.Sent,
-		Time:       msg.Time.Format(time.RFC3339), // 或者使用其他格式
-	}
-
-	m := TempWsMsg{tempMsg}
-	// m := WsMsg{msg}
+	// // 创建一个临时结构体来处理序列化
+	// type TempMsg struct {
+	// 	ID         string `json:"id"`
+	// 	SelfNumber string `json:"self_number"`
+	// 	Number     string `json:"number"`
+	// 	Text       string `json:"text"`
+	// 	Sent       bool   `json:"sent"`
+	// 	Time       string `json:"time"` // 使用字符串格式
+	// }
+	//
+	// type TempWsMsg struct {
+	// 	Msg TempMsg `json:"msg"`
+	// }
+	//
+	// // 转换时间格式
+	// tempMsg := TempMsg{
+	// 	ID:         msg.ID,
+	// 	SelfNumber: msg.SelfNumber,
+	// 	Number:     msg.Number,
+	// 	Text:       msg.Text,
+	// 	Sent:       msg.Sent,
+	// 	Time:       msg.Time.Format(time.RFC3339), // 或者使用其他格式
+	// }
+	//
+	// m := TempWsMsg{tempMsg}
+	m := WsMsg{msg}
 	b, err := json.Marshal(&m)
 	if err != nil {
 		log.Errorf("JsonMarshal %v", err)

@@ -4,6 +4,7 @@ package smsd
 #cgo pkg-config: gammu
 #include <stdlib.h>
 #include <gammu.h>
+#include <string.h>
 
 void sendCallback(GSM_StateMachine *sm, int status, int msgRef, void *data) {
     if (status==0) {
@@ -28,6 +29,8 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"runtime/debug"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -172,16 +175,61 @@ func (sm *StateMachine) GetOwnNumber() string {
 		entry, e := sm.GetMemory(C.MEM_ON, 1)
 		if e != nil {
 			log.Errorf("GammuGetMem %v", e)
-			log.Warn("GammuGetMem", "Tring to get memory of SIM card again after 5 seconds......")
+			log.Warn("GammuGetMem: 5秒后重新尝试获取SIM卡内存...")
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		sm.number = sm.country + encodeUTF8(&entry.Text[0])
+
+		// 获取SIM卡中的原始号码
+		rawNumber := encodeUTF8(&entry.Text[0])
+		log.Infof("从SIM卡读取的原始号码: %s", rawNumber)
+
+		// 清理号码格式（移除可能的多余前缀）
+		cleanedNumber := cleanPhoneNumber(rawNumber)
+
+		// 如果清理后的号码已经包含国家代码，就不重复添加
+		if strings.HasPrefix(cleanedNumber, "+") {
+			sm.number = cleanedNumber
+		} else {
+			// 只有号码不以+开头时才添加国家代码
+			sm.number = sm.country + cleanedNumber
+		}
+
+		log.Infof("格式化后的本机号码: %s", sm.number)
 		break
 	}
 	return sm.number
 }
 
+// 清理手机号码格式
+func cleanPhoneNumber(number string) string {
+	if number == "" {
+		return number
+	}
+
+	// 移除所有非数字字符（除了+号）
+	var result strings.Builder
+	for _, ch := range number {
+		if ch == '+' || (ch >= '0' && ch <= '9') {
+			result.WriteRune(ch)
+		}
+	}
+
+	cleaned := result.String()
+
+	// 处理中国的特殊情况：86开头的号码可能已经包含国家代码
+	if strings.HasPrefix(cleaned, "86") && len(cleaned) > 2 {
+		// 如果以86开头且后面还有数字，可能是已经包含国家代码
+		return "+" + cleaned
+	}
+
+	// 处理+86开头的号码（确保格式正确）
+	if strings.HasPrefix(cleaned, "+86") {
+		return cleaned
+	}
+
+	return cleaned
+}
 func (sm *StateMachine) GetCountryCode() string {
 	if sm.country != "" {
 		return sm.country
@@ -217,15 +265,57 @@ func (sm *StateMachine) HardReset() error {
 }
 
 func decodeUTF8(out *C.uchar, in string) {
+	// 检查输出指针是否为空
+	if out == nil {
+		log.Error("decodeUTF8: 输出指针为空")
+		return
+	}
+
+	// 检查输入字符串是否为空
+	if in == "" {
+		// 清空输出缓冲区
+		C.memset(unsafe.Pointer(out), 0, 1)
+		return
+	}
+
+	// 限制输入字符串长度
+	maxInputLength := 1000
+	if len(in) > maxInputLength {
+		log.Warnf("decodeUTF8: 输入字符串长度 %d 超过限制，截断为 %d", len(in), maxInputLength)
+		in = in[:maxInputLength]
+	}
+
 	cin := C.CString(in)
+	defer C.free(unsafe.Pointer(cin))
+
 	C.DecodeUTF8(out, cin, C.ulong(len(in)))
-	C.free(unsafe.Pointer(cin))
 }
 
 func encodeUnicode(out *C.uchar, in string) {
+	// 检查输出指针是否为空
+	if out == nil {
+		log.Error("encodeUnicode: 输出指针为空")
+		return
+	}
+
+	// 检查输入字符串是否为空
+	if in == "" {
+		// 清空输出缓冲区
+		C.memset(unsafe.Pointer(out), 0, 1)
+		return
+	}
+
+	// 限制输入字符串长度
+	maxInputLength := 1000
+	if len(in) > maxInputLength {
+		log.Warnf("encodeUnicode: 输入字符串长度 %d 超过限制，截断为 %d", len(in), maxInputLength)
+		in = in[:maxInputLength]
+	}
+
 	cin := C.CString(in)
+	defer C.free(unsafe.Pointer(cin))
+
 	C.EncodeUnicode(out, cin, C.ulong(len(in)))
-	C.free(unsafe.Pointer(cin))
 }
 
 func (sm *StateMachine) sendSMS(sms *C.GSM_SMSMessage, number string, report bool) error {
@@ -302,19 +392,78 @@ func (sm *StateMachine) SendLongSMS(number, text string, report bool) error {
 }
 
 func encodeUTF8(in *C.uchar) string {
-	l := C.UnicodeLength(in)
-	if l == 0 {
+	// 检查输入指针是否为空
+	if in == nil {
+		log.Warn("encodeUTF8: 收到空指针输入")
 		return ""
 	}
-	out := make([]C.char, C.UnicodeLength(in)*2)
+
+	// 获取 Unicode 字符串长度
+	l := C.UnicodeLength(in)
+
+	// 检查长度是否合理
+	if l <= 0 {
+		return ""
+	}
+
+	// 设置合理的最大长度限制（避免内存过度分配）
+	const maxReasonableLength = 10000 // 短信通常不会超过这个长度
+	if l > maxReasonableLength {
+		log.Warnf("encodeUTF8: 字符串长度 %d 超过合理范围，限制为 %d", l, maxReasonableLength)
+		l = maxReasonableLength
+	}
+
+	// 分配输出缓冲区（增加额外空间确保安全）
+	outSize := l*2 + 1 // 额外的一个字符用于确保以null结尾
+	out := make([]C.char, outSize)
+
+	// 确保缓冲区以null结尾
+	out[outSize-1] = 0
+
+	// 编码UTF8
 	C.EncodeUTF8(&out[0], in)
+
+	// 转换为Go字符串前检查第一个字符是否为null
+	if out[0] == 0 {
+		log.Warn("encodeUTF8: 编码结果为空字符串")
+		return ""
+	}
+
 	return C.GoString(&out[0])
 }
 
 func goTime(t *C.GSM_DateTime) time.Time {
+	// 检查 C 结构体指针是否有效
+	if t == nil {
+		log.Warn("收到空的 GSM_DateTime 指针，使用当前时间")
+		return time.Now()
+	}
+
+	// 检查日期字段的合理性
+	year := int(t.Year)
+	month := int(t.Month)
+	day := int(t.Day)
+	hour := int(t.Hour)
+	minute := int(t.Minute)
+	second := int(t.Second)
+
+	// 基本验证
+	if year < 2000 || year > 2100 {
+		log.Warnf("年份 %d 不合理，使用当前时间", year)
+		return time.Now()
+	}
+	if month < 1 || month > 12 {
+		log.Warnf("月份 %d 不合理，使用当前时间", month)
+		return time.Now()
+	}
+	if day < 1 || day > 31 {
+		log.Warnf("日期 %d 不合理，使用当前时间", day)
+		return time.Now()
+	}
+
 	return time.Date(
-		int(t.Year), time.Month(t.Month), int(t.Day),
-		int(t.Hour), int(t.Minute), int(t.Second), 0,
+		year, time.Month(month), day,
+		hour, minute, second, 0,
 		time.UTC,
 	).Add(-time.Second * time.Duration(t.Timezone)).Local()
 }
@@ -330,6 +479,13 @@ type SMS struct {
 // Read and deletes first available message.
 // Returns io.EOF if there are no more messages to read
 func (sm *StateMachine) GetSMS() (sms SMS, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("GetSMS发生panic: %v", r)
+			log.Errorf("堆栈信息: %s", string(debug.Stack()))
+			err = fmt.Errorf("GetSMS panic: %v", r)
+		}
+	}()
 	var msms C.GSM_MultiSMSMessage
 
 	// 使用 GetNextSMS，从头开始读取（start = TRUE 表示从头开始扫描）

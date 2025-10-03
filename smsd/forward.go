@@ -17,18 +17,19 @@ import (
 
 // ForwardConn 结构体中
 type ForwardConn struct {
-	ForwardEnabled  bool   `json:"forward_enabled"`
-	ForwardURL      string `json:"forward_url"`
-	ForwardSecret   string `json:"forward_secret"`
-	ForwardTimeout  int    `json:"forward_timeout"`
-	ForwardChan     chan []Msg
-	CallForwardURL  string          `json:"call_forward_url"` // 新增：通话记录转发URL
-	CallChan        chan CallRecord // 新增：通话记录通道
-	workerCount     int
-	callWorkerCount int // 新增：通话记录worker数量
-	wg              sync.WaitGroup
-	ctx             context.Context
-	cancel          context.CancelFunc
+	ForwardEnabled     bool   `json:"forward_enabled"`
+	ForwardCallEnabled bool   `json:"forward_call_enabled"`
+	ForwardURL         string `json:"forward_url"`
+	ForwardSecret      string `json:"forward_secret"`
+	ForwardTimeout     int    `json:"forward_timeout"`
+	ForwardChan        chan []Msg
+	CallForwardURL     string          `json:"call_forward_url"` // 新增：通话记录转发URL
+	CallChan           chan CallRecord // 新增：通话记录通道
+	workerCount        int
+	callWorkerCount    int // 新增：通话记录worker数量
+	wg                 sync.WaitGroup
+	ctx                context.Context
+	cancel             context.CancelFunc
 }
 
 // SMSRequest 发送到转发服务的请求结构
@@ -49,7 +50,7 @@ func initForward() *ForwardConn {
 	forwardURL := getEnv("FORWARD_URL", "http://forwardsms:8080/api/v1/sms/receive")
 	forwardSecret := os.Getenv("FORWARD_SECRET")
 	forwardTimeout := getEnvInt("FORWARD_TIMEOUT", 30)
-
+	forwardCallEnabled := os.Getenv("CALL_FORWARD_ENABLED") == "true" || os.Getenv("CALL_FORWARD_ENABLED") == "1"
 	// 新增：通话记录转发URL配置
 	callForwardURL := getEnv("CALL_FORWARD_URL", "http://forwardsms:8080/api/v1/call/receive")
 
@@ -60,17 +61,18 @@ func initForward() *ForwardConn {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	conn := &ForwardConn{
-		ForwardEnabled:  forwardEnabled,
-		ForwardURL:      forwardURL,
-		ForwardSecret:   forwardSecret,
-		ForwardTimeout:  forwardTimeout,
-		ForwardChan:     make(chan []Msg, 100),
-		CallForwardURL:  callForwardURL,            // 新增
-		CallChan:        make(chan CallRecord, 50), // 新增：通话记录通道
-		workerCount:     1,
-		callWorkerCount: 1, // 新增：通话记录worker数量
-		ctx:             ctx,
-		cancel:          cancel,
+		ForwardEnabled:     forwardEnabled,
+		ForwardCallEnabled: forwardCallEnabled,
+		ForwardURL:         forwardURL,
+		ForwardSecret:      forwardSecret,
+		ForwardTimeout:     forwardTimeout,
+		ForwardChan:        make(chan []Msg, 100),
+		CallForwardURL:     callForwardURL,            // 新增
+		CallChan:           make(chan CallRecord, 50), // 新增：通话记录通道
+		workerCount:        1,
+		callWorkerCount:    1, // 新增：通话记录worker数量
+		ctx:                ctx,
+		cancel:             cancel,
 	}
 
 	// 启动短信worker
@@ -331,9 +333,13 @@ func (f *ForwardConn) processCallWorker(workerID int) {
 	}
 }
 
+func (f *ForwardConn) checkCallEnable() bool {
+	return f.ForwardCallEnabled
+}
+
 // forwardCall 转发通话记录
 func (f *ForwardConn) forwardCall(call CallRecord, workerID int) {
-	if !f.checkEnable() {
+	if !f.checkCallEnable() {
 		return
 	}
 

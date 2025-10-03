@@ -19,6 +19,7 @@ Gammu-Web is a wrapper for [libGammu](https://github.com/gammu/gammu) with WebUI
 - Http api
 - Websocket server
 - A single binary with embed static files
+- 增加来电数据抓取。我的ec200t-cn，需要用`/dev/ttyUSB1`来同时收发短信和通话。(`/dev/ttyUSB2`只能收发短信)。其他模块请自行测试。
 
 ## Prerequisite
 
