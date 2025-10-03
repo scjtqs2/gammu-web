@@ -35,6 +35,8 @@ var (
 	forwardSvc             *ForwardConn
 	shutdownChan           = make(chan struct{})
 	wg                     sync.WaitGroup
+	callCache              = make(map[string]time.Time) // 用于去重的缓存
+	callCacheLock          sync.RWMutex
 )
 
 func errCounter(e error) {
@@ -73,9 +75,10 @@ func Init(config string) {
 	forwardSvc = initForward()
 
 	// 启动工作协程
-	wg.Add(2)
+	wg.Add(3)
 	go ReseiveSendLoop()
 	go StorageSMSLoop()
+	go CallMonitorLoop() // 事件驱动的通话监控
 
 	// 设置信号处理，优雅关闭
 	setupSignalHandler()
@@ -92,6 +95,7 @@ func setupSignalHandler() {
 	}()
 }
 
+// 修改 Close 函数，确保正确关闭所有通道
 func Close() {
 	log.Info("开始关闭短信服务...")
 
@@ -368,5 +372,65 @@ func GetStats() map[string]interface{} {
 		"outbox_count":  len(outBox),
 		"sentbox_count": len(sentBox),
 		"err_count":     errCount,
+	}
+}
+
+// CallMonitorLoop 通话记录监控循环（事件驱动）
+func CallMonitorLoop() {
+	defer wg.Done()
+
+	log.Info("通话记录监控循环启动（事件驱动）")
+
+	for {
+		select {
+		case <-shutdownChan:
+			log.Info("通话记录监控循环收到关闭信号，退出")
+			return
+		case ev := <-callEvents:
+			// 只处理来电（incoming）
+			if ev.Type != "incoming" {
+				// 如果你也想转发 missed/outgoing，可在此添加逻辑
+				continue
+			}
+
+			// 生成唯一标识（号码+时间戳）
+			callKey := fmt.Sprintf("%s_%d", ev.Number, ev.Time.Unix())
+
+			callCacheLock.RLock()
+			_, exists := callCache[callKey]
+			callCacheLock.RUnlock()
+
+			if exists {
+				// 已处理过，跳过
+				continue
+			}
+
+			// 标记为已处理
+			callCacheLock.Lock()
+			callCache[callKey] = ev.Time
+			callCacheLock.Unlock()
+
+			// 记录并转发
+			log.Infof("转发来电记录: %s (%s) - %s", ev.Number, ev.Name, ev.Time.Format("2006-01-02 15:04:05"))
+			if forwardSvc != nil {
+				forwardSvc.PutCall(ev)
+			}
+		case <-time.After(30 * time.Second):
+			// 周期性清理缓存（避免无限增长）
+			cleanupCallCache()
+		}
+	}
+}
+
+// cleanupCallCache 清理通话记录缓存
+func cleanupCallCache() {
+	callCacheLock.Lock()
+	defer callCacheLock.Unlock()
+
+	cutoff := time.Now().Add(-24 * time.Hour)
+	for key, timestamp := range callCache {
+		if timestamp.Before(cutoff) {
+			delete(callCache, key)
+		}
 	}
 }

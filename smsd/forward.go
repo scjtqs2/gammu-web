@@ -15,16 +15,20 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// ForwardConn 结构体中
 type ForwardConn struct {
-	ForwardEnabled bool   `json:"forward_enabled"`
-	ForwardURL     string `json:"forward_url"`
-	ForwardSecret  string `json:"forward_secret"`
-	ForwardTimeout int    `json:"forward_timeout"`
-	ForwardChan    chan []Msg
-	workerCount    int
-	wg             sync.WaitGroup
-	ctx            context.Context
-	cancel         context.CancelFunc
+	ForwardEnabled  bool   `json:"forward_enabled"`
+	ForwardURL      string `json:"forward_url"`
+	ForwardSecret   string `json:"forward_secret"`
+	ForwardTimeout  int    `json:"forward_timeout"`
+	ForwardChan     chan []Msg
+	CallForwardURL  string          `json:"call_forward_url"` // 新增：通话记录转发URL
+	CallChan        chan CallRecord // 新增：通话记录通道
+	workerCount     int
+	callWorkerCount int // 新增：通话记录worker数量
+	wg              sync.WaitGroup
+	ctx             context.Context
+	cancel          context.CancelFunc
 }
 
 // SMSRequest 发送到转发服务的请求结构
@@ -39,12 +43,15 @@ type SMSRequest struct {
 	Timestamp string `json:"timestamp"`
 }
 
-// initForward 初始化转发服务
+// initForward 初始化
 func initForward() *ForwardConn {
 	forwardEnabled := os.Getenv("FORWARD_ENABLED") == "true" || os.Getenv("FORWARD_ENABLED") == "1"
 	forwardURL := getEnv("FORWARD_URL", "http://forwardsms:8080/api/v1/sms/receive")
 	forwardSecret := os.Getenv("FORWARD_SECRET")
 	forwardTimeout := getEnvInt("FORWARD_TIMEOUT", 30)
+
+	// 新增：通话记录转发URL配置
+	callForwardURL := getEnv("CALL_FORWARD_URL", "http://forwardsms:8080/api/v1/call/receive")
 
 	// 验证必要的配置
 	if forwardEnabled && forwardSecret == "" {
@@ -53,23 +60,33 @@ func initForward() *ForwardConn {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	conn := &ForwardConn{
-		ForwardEnabled: forwardEnabled,
-		ForwardURL:     forwardURL,
-		ForwardSecret:  forwardSecret,
-		ForwardTimeout: forwardTimeout,
-		ForwardChan:    make(chan []Msg, 100),
-		workerCount:    1,
-		ctx:            ctx,
-		cancel:         cancel,
+		ForwardEnabled:  forwardEnabled,
+		ForwardURL:      forwardURL,
+		ForwardSecret:   forwardSecret,
+		ForwardTimeout:  forwardTimeout,
+		ForwardChan:     make(chan []Msg, 100),
+		CallForwardURL:  callForwardURL,            // 新增
+		CallChan:        make(chan CallRecord, 50), // 新增：通话记录通道
+		workerCount:     1,
+		callWorkerCount: 1, // 新增：通话记录worker数量
+		ctx:             ctx,
+		cancel:          cancel,
 	}
 
-	// 启动多个worker
+	// 启动短信worker
 	for i := 0; i < conn.workerCount; i++ {
 		conn.wg.Add(1)
 		go conn.processSMSWorker(i)
 	}
 
-	log.Infof("短信转发服务初始化完成: 启用=%v, Worker数量=%d", forwardEnabled, conn.workerCount)
+	// 新增：启动通话记录worker
+	for i := 0; i < conn.callWorkerCount; i++ {
+		conn.wg.Add(1)
+		go conn.processCallWorker(i)
+	}
+
+	log.Infof("短信转发服务初始化完成: 启用=%v, 短信Worker数量=%d, 通话Worker数量=%d",
+		forwardEnabled, conn.workerCount, conn.callWorkerCount)
 	return conn
 }
 
@@ -114,6 +131,7 @@ func (f *ForwardConn) Close() {
 	}
 
 	close(f.ForwardChan)
+	close(f.CallChan)
 }
 
 // processSMSWorker 处理转发的worker
@@ -276,5 +294,131 @@ func (f *ForwardConn) PutMsgs(msgs []Msg) {
 				log.Warn("转发队列已满，丢弃短信")
 			}
 		}(msgsCopy)
+	}
+}
+
+// CallRequest 发送到转发服务的通话记录请求结构
+type CallRequest struct {
+	Secret    string `json:"secret"`
+	Number    string `json:"number"`
+	Name      string `json:"name"`
+	Time      string `json:"time"`
+	Type      string `json:"type"`
+	Duration  int    `json:"duration"`
+	Source    string `json:"source"`
+	PhoneID   string `json:"phone_id"`
+	Timestamp string `json:"timestamp"`
+}
+
+// 新增：处理通话记录的worker
+func (f *ForwardConn) processCallWorker(workerID int) {
+	defer f.wg.Done()
+
+	log.Infof("通话记录转发worker %d 启动", workerID)
+
+	for {
+		select {
+		case call, ok := <-f.CallChan:
+			if !ok {
+				log.Infof("通话记录转发worker %d 退出", workerID)
+				return
+			}
+			f.forwardCall(call, workerID)
+		case <-f.ctx.Done():
+			log.Infof("通话记录转发worker %d 收到退出信号", workerID)
+			return
+		}
+	}
+}
+
+// forwardCall 转发通话记录
+func (f *ForwardConn) forwardCall(call CallRecord, workerID int) {
+	if !f.checkEnable() {
+		return
+	}
+
+	reqData := CallRequest{
+		Secret:    f.ForwardSecret,
+		Number:    call.Number,
+		Name:      call.Name,
+		Time:      call.Time.Format("2006-01-02 15:04:05"),
+		Type:      call.Type,
+		Duration:  call.Duration,
+		Source:    "gammu-web",
+		PhoneID:   f.getPhoneId(Msg{}), // 使用空的Msg，因为通话记录没有Msg结构
+		Timestamp: strconv.FormatInt(call.Time.Unix(), 10),
+	}
+
+	// 序列化为 JSON
+	jsonData, err := json.Marshal(reqData)
+	if err != nil {
+		log.Errorf("worker %d 通话记录序列化失败: %v", workerID, err)
+		return
+	}
+
+	log.Debugf("worker %d 尝试转发通话记录: %s %s", workerID, call.Number, call.Type)
+
+	// 创建带超时的HTTP客户端
+	client := &http.Client{
+		Timeout: time.Duration(f.ForwardTimeout) * time.Second,
+	}
+
+	// 创建请求
+	req, err := http.NewRequest("POST", f.CallForwardURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		log.Errorf("worker %d 创建通话记录HTTP请求失败: %v", workerID, err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Gammu-SMSD-Go/1.0")
+
+	// 发送请求
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Errorf("worker %d 发送通话记录HTTP请求失败: %v", workerID, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	// 读取响应
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Errorf("worker %d 读取通话记录响应失败: %v", workerID, err)
+		return
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		log.Infof("✓ worker %d 通话记录成功转发: %s %s (HTTP %d)",
+			workerID, call.Number, call.Type, resp.StatusCode)
+		if len(body) > 0 {
+			log.Debugf("服务响应: %s", string(body))
+		}
+	} else {
+		log.Errorf("worker %d 通话记录转发失败 - 号码: %s, 类型: %s, HTTP状态码: %d, 响应: %s",
+			workerID, call.Number, call.Type, resp.StatusCode, string(body))
+	}
+}
+
+// PutCall 安全地放入通话记录
+func (f *ForwardConn) PutCall(call CallRecord) {
+	if !f.checkEnable() {
+		return
+	}
+
+	select {
+	case f.CallChan <- call:
+		// 成功放入队列
+	case <-f.ctx.Done():
+		// 服务已关闭
+		log.Warn("转发服务已关闭，丢弃通话记录")
+	default:
+		// 队列已满，使用goroutine避免阻塞
+		go func(call CallRecord) {
+			select {
+			case f.CallChan <- call:
+			case <-time.After(5 * time.Second):
+				log.Warn("通话记录转发队列已满，丢弃记录")
+			}
+		}(call)
 	}
 }

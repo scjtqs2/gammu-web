@@ -1,6 +1,7 @@
 package smsd
 
 /*
+#cgo pkg-config: gammu
 #include <stdlib.h>
 #include <gammu.h>
 
@@ -20,8 +21,6 @@ void setDebug() {
     GSM_SetDebugFileDescriptor(stderr, TRUE, debug_info);
     GSM_SetDebugLevel("textall", debug_info);
 }
-
-#cgo pkg-config: gammu
 */
 import "C"
 import (
@@ -135,6 +134,13 @@ func (sm *StateMachine) Connect() error {
 		sm.status = e
 		return NewError("GetSMSC", e)
 	}
+
+	// 启用来电通知
+	C.GSM_SetIncomingCall(sm.g, C.TRUE)
+
+	// 注册通话回调
+	registerCallCallback(sm.g)
+
 	return nil
 }
 
