@@ -24,27 +24,88 @@ var upgrader = websocket.Upgrader{
 func wsHandler(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Fatalf("WSUpgrade %v", err)
+		log.Errorf("WebSocket升级失败: %v", err)
+		return
 	}
+
 	number := smsd.GetOwnNumber()
 	id := message.GenerateId()
+
+	// 创建新的WebSocket连接
+	wsConn := message.NewWebSocket(id, ws)
+
+	// 使用线程安全的方式添加连接
+	message.AddWebSocket(number, wsConn)
+
+	log.Infof("WebSocket连接已建立: %s (ID: %s)", number, id)
+
 	defer func() {
+		// 使用线程安全的方式移除连接
 		message.RemoveWs(number, id)
 		ws.Close()
+		log.Infof("WebSocket连接已关闭: %s (ID: %s)", number, id)
 	}()
-	message.WS[number] = append(message.WS[number], message.NewWebSocket(id, ws))
+
+	// 设置读取超时和其他参数
+	ws.SetReadLimit(512) // 限制消息大小
+	// ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+	// ws.SetPongHandler(func(string) error {
+	// 	ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+	// 	return nil
+	// })
+
 	for {
-		_, message, err := ws.ReadMessage()
+		messageType, msg, err := ws.ReadMessage()
 		if err != nil {
-			log.Error("WsRead", err)
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Errorf("WebSocket读取错误: %v", err)
+			} else {
+				log.Debugf("WebSocket连接正常关闭: %v", err)
+			}
 			break
 		}
-		log.Info("WsRecv", string(message))
-		// err = ws.WriteMessage(mt, message)
-		// if err != nil {
-		// 	log.Error("WsWrite", err)
-		// 	break
-		// }
+
+		// 处理不同类型的消息
+		switch messageType {
+		case websocket.TextMessage:
+			log.Infof("WebSocket收到文本消息: %s", string(msg))
+			// 可以在这里处理客户端发送的指令
+			// 例如：{"type": "ping", "data": "..."}
+
+			// 简单的ping-pong响应
+			if string(msg) == "ping" {
+				wsConn.Mu.Lock()
+				err = ws.WriteMessage(websocket.TextMessage, []byte("pong"))
+				wsConn.Mu.Unlock()
+				if err != nil {
+					log.Errorf("WebSocket响应ping失败: %v", err)
+					break
+				}
+			}
+
+		case websocket.BinaryMessage:
+			log.Infof("WebSocket收到二进制消息，长度: %d", len(msg))
+
+		case websocket.CloseMessage:
+			log.Debug("WebSocket收到关闭消息")
+			return
+
+		case websocket.PingMessage:
+			log.Debug("WebSocket收到Ping消息")
+			wsConn.Mu.Lock()
+			err = ws.WriteMessage(websocket.PongMessage, nil)
+			wsConn.Mu.Unlock()
+			if err != nil {
+				log.Errorf("WebSocket响应Ping失败: %v", err)
+				break
+			}
+
+		case websocket.PongMessage:
+			log.Debug("WebSocket收到Pong消息")
+
+		default:
+			log.Warnf("WebSocket收到未知消息类型: %d", messageType)
+		}
 	}
 }
 

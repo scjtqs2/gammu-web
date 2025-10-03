@@ -161,6 +161,10 @@ func Init(config string) {
 	go StorageSMSLoop()
 	go CallMonitorLoop() // 事件驱动的通话监控
 
+	// 启动WebSocket连接清理循环
+	wg.Add(1)
+	go WebsocketCleanupLoop()
+
 	// 设置信号处理，优雅关闭
 	setupSignalHandler()
 }
@@ -418,10 +422,12 @@ func StorageSMSLoop() {
 				msgsToForward := make([]Msg, len(inBox))
 				copy(msgsToForward, inBox)
 
-				// 发送 WebSocket 通知
-				for _, msg := range inBox {
-					message.WsSendSMS(number, msg)
-				}
+				// 发送 WebSocket 通知（使用goroutine避免阻塞）
+				go func(msgs []Msg) {
+					for _, msg := range msgs {
+						message.WsSendSMS(number, msg)
+					}
+				}(inBox)
 
 				// 存储到数据库
 				db.InsertSMSMany(inBox)
@@ -439,12 +445,14 @@ func StorageSMSLoop() {
 					continue
 				}
 
-				for _, msg := range sentBox {
-					log.Infof("SentSMS To %s with text: %s", msg.Number, msg.Text)
-					message.WsSendSMS(number, msg)
-				}
-				// db.InsertSMSMany(sentBox)
-				// db.UpdateAbstract(sentBox[len(sentBox)-1])
+				// 使用goroutine发送WebSocket通知，避免阻塞存储循环
+				go func(msgs []Msg) {
+					for _, msg := range msgs {
+						log.Infof("SentSMS To %s with text: %s", msg.Number, msg.Text)
+						message.WsSendSMS(number, msg)
+					}
+				}(sentBox)
+
 				sentBox = []Msg{}
 				outLock.Unlock()
 			}
@@ -523,6 +531,22 @@ func cleanupCallCache() {
 	for key, timestamp := range callCache {
 		if timestamp.Before(cutoff) {
 			delete(callCache, key)
+		}
+	}
+}
+
+// 定期清理无效的WebSocket连接
+func WebsocketCleanupLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			message.CleanupInvalidConnections()
+		case <-shutdownChan:
+			log.Info("WebSocket清理循环收到关闭信号，退出")
+			return
 		}
 	}
 }
