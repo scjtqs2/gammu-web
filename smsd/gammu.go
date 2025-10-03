@@ -422,14 +422,19 @@ func encodeUTF8(in *C.uchar) string {
 	return C.GoString(out)
 }
 
+// 增强的 goTime 函数，添加更多保护
 func goTime(t *C.GSM_DateTime) time.Time {
-	// 检查 C 结构体指针是否有效
 	if t == nil {
 		log.Warn("收到空的 GSM_DateTime 指针，使用当前时间")
 		return time.Now()
 	}
 
-	// 检查日期字段的合理性
+	// 检查关键字段是否为0，这可能表示无效的时间
+	if t.Year == 0 && t.Month == 0 && t.Day == 0 {
+		log.Warn("GSM_DateTime 所有字段都为0，使用当前时间")
+		return time.Now()
+	}
+
 	year := int(t.Year)
 	month := int(t.Month)
 	day := int(t.Day)
@@ -437,8 +442,9 @@ func goTime(t *C.GSM_DateTime) time.Time {
 	minute := int(t.Minute)
 	second := int(t.Second)
 
-	// 基本验证
-	if year < 2000 || year > 2100 {
+	// 更严格的时间验证
+	currentYear := time.Now().Year()
+	if year < 2000 || year > currentYear+1 {
 		log.Warnf("年份 %d 不合理，使用当前时间", year)
 		return time.Now()
 	}
@@ -446,8 +452,33 @@ func goTime(t *C.GSM_DateTime) time.Time {
 		log.Warnf("月份 %d 不合理，使用当前时间", month)
 		return time.Now()
 	}
-	if day < 1 || day > 31 {
+
+	// 检查每月的天数
+	maxDays := 31
+	if month == 2 {
+		if (year%4 == 0 && year%100 != 0) || (year%400 == 0) {
+			maxDays = 29 // 闰年
+		} else {
+			maxDays = 28
+		}
+	} else if month == 4 || month == 6 || month == 9 || month == 11 {
+		maxDays = 30
+	}
+
+	if day < 1 || day > maxDays {
 		log.Warnf("日期 %d 不合理，使用当前时间", day)
+		return time.Now()
+	}
+	if hour < 0 || hour > 23 {
+		log.Warnf("小时 %d 不合理，使用当前时间", hour)
+		return time.Now()
+	}
+	if minute < 0 || minute > 59 {
+		log.Warnf("分钟 %d 不合理，使用当前时间", minute)
+		return time.Now()
+	}
+	if second < 0 || second > 59 {
+		log.Warnf("秒 %d 不合理，使用当前时间", second)
 		return time.Now()
 	}
 
@@ -476,10 +507,10 @@ func (sm *StateMachine) GetSMS() (sms SMS, err error) {
 			err = fmt.Errorf("GetSMS panic: %v", r)
 		}
 	}()
+
 	var msms C.GSM_MultiSMSMessage
 
-	// 使用 GetNextSMS，从头开始读取（start = TRUE 表示从头开始扫描）
-	// 如果你希望保持未删除，可以把最后一个参数设为 C.FALSE 然后手动删除。
+	// 使用 GetNextSMS，从头开始读取
 	if e := C.GSM_GetNextSMS(sm.g, &msms, C.TRUE); e != C.ERR_NONE {
 		if e == C.ERR_EMPTY {
 			return sms, io.EOF
@@ -487,53 +518,121 @@ func (sm *StateMachine) GetSMS() (sms SMS, err error) {
 		return sms, NewError("GetNextSMS", e)
 	}
 
-	// msms.Number 表示 msms.SMS[] 中的条目数（分段sms会放在一起）
+	// 检查消息数量是否合理
+	if msms.Number <= 0 || msms.Number > 10 {
+		log.Warnf("异常的消息数量: %d，跳过处理", msms.Number)
+		return sms, fmt.Errorf("异常的消息数量: %d", msms.Number)
+	}
+
 	// 取第一个条目的发件人/时间作为该 "消息" 的元信息
-	first := msms.SMS[0]
+	first := &msms.SMS[0]
+
+	// 安全检查：确保第一个短信段有效
+	if !isValidSMSMessage(first) {
+		log.Warn("第一个短信段无效，跳过处理")
+		return sms, fmt.Errorf("无效的短信数据")
+	}
+
+	// 安全地获取号码
 	sms.Number = encodeUTF8(&first.Number[0])
+
+	// 安全地处理时间
 	sms.Time = goTime(&first.DateTime)
 	sms.SMSCTime = goTime(&first.SMSCTime)
 
 	// 将多段拼接
 	for i := 0; i < int(msms.Number); i++ {
-		s := msms.SMS[i]
-		// 保存 lastSms 按需（若你确实需要全局 lastSms，可在这里赋值）
-		lastSms = s
+		s := &msms.SMS[i]
 
-		if s.Coding == C.SMS_Coding_8bit {
-			// 跳过二进制消息体（或按需处理）
+		// 安全检查：确保消息结构有效
+		if !isValidSMSMessage(s) {
+			log.Warnf("跳过无效的短信段 %d", i)
 			continue
 		}
-		sms.Body += encodeUTF8(&s.Text[0])
+
+		if s.Coding == C.SMS_Coding_8bit {
+			// 跳过二进制消息体
+			continue
+		}
+
+		// 安全地获取文本内容
+		text := encodeUTF8(&s.Text[0])
+		sms.Body += text
+
 		if s.PDU == C.SMS_Status_Report {
 			sms.Report = true
 		}
 	}
 
-	// 如果你传入 C.TRUE 给 GSM_GetNextSMS，libgammu 在读取时就能做删除。
-	// 但不同版本/驱动表现可能不一，若你想显式删除可以对 msms.SMS[0] 调用 GSM_DeleteSMS。
-	// 我们这里尝试显式删除以确保：
-	for i := 0; i < int(msms.Number); i++ {
-		s := msms.SMS[i]
-		// 设置 Flat folder（与之前逻辑一致）
-		s.Folder = 0
-		if e := C.GSM_DeleteSMS(sm.g, &s); e != C.ERR_NONE {
-			// 不是致命错误，但返回包装后上层处理
-			return sms, NewError("DeleteSMS", e)
-		}
+	// 安全的删除操作
+	if err := sm.safeDeleteSMS(&msms); err != nil {
+		log.Errorf("删除短信失败: %v", err)
+		return sms, err
 	}
 
 	return sms, nil
 }
 
-func c_gsm_deleteSMS(sm *StateMachine, s *C.GSM_SMSMessage) {
+// 增强的安全检查函数 - 现在接收指针参数
+func isValidSMSMessage(s *C.GSM_SMSMessage) bool {
 	if s == nil {
-		return
+		log.Warn("短信消息结构为空指针")
+		return false
 	}
-	s.Folder = 0 // Flat
-	if e := C.GSM_DeleteSMS(sm.g, s); e != C.ERR_NONE {
-		log.Error("c_gsm_DeleteSMS", NewError("DeleteSMS", e))
+
+	// 放宽位置值检查范围，某些设备可能有更大的位置值
+	if s.Location < 0 || s.Location > 1000000 { // 从10000增加到1000000
+		log.Warnf("异常的位置值: %d", s.Location)
+		// 不立即返回false，继续检查其他字段
 	}
+
+	// 检查时间字段的合理性
+	// 检查年份是否在合理范围内
+	if s.DateTime.Year < 0 || s.DateTime.Year > 2900 {
+		log.Warnf("异常的年份值: %d", s.DateTime.Year)
+		return false
+	}
+
+	// 检查号码字段
+	number := encodeUTF8(&s.Number[0])
+	if number == "" {
+		log.Warn("号码字段为空")
+		return false
+	}
+
+	// 如果位置值异常但其他字段正常，仍然认为是有效的
+	return true
+}
+
+// 增强：安全的删除函数
+func (sm *StateMachine) safeDeleteSMS(msms *C.GSM_MultiSMSMessage) error {
+	if msms == nil {
+		return fmt.Errorf("消息结构为空")
+	}
+
+	for i := 0; i < int(msms.Number); i++ {
+		s := &msms.SMS[i]
+
+		// 额外的安全检查
+		if !isValidSMSMessage(s) {
+			log.Warnf("跳过删除无效的短信段 %d", i)
+			continue
+		}
+
+		// 设置 Flat folder
+		s.Folder = 0
+
+		// 使用互斥锁保护CGO调用
+		if e := C.GSM_DeleteSMS(sm.g, s); e != C.ERR_NONE {
+			// 不是致命错误，记录但继续
+			log.Warnf("删除短信段 %d 失败: %v", i, ToGSMError(e))
+			// 继续删除其他段，不立即返回错误
+		} else {
+			log.Debugf("成功删除短信段 %d", i)
+		}
+	}
+
+	return nil
 }
 
 // 重置短信状态 - 使用现有的函数

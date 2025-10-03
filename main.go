@@ -4,6 +4,7 @@ import (
 	"flag"
 	"io"
 	"os"
+	"runtime"
 
 	"github.com/ctaoist/gammu-web/config"
 	"github.com/ctaoist/gammu-web/db"
@@ -42,6 +43,17 @@ func init() {
 }
 
 func main() {
+	// ========== CGO 安全设置 - 必须在程序开始时设置 ==========
+	// 设置GOMAXPROCS，避免CGO与调度器冲突
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	// 启用详细错误信息
+	// debug.SetTraceback("system")
+
+	// 锁定主线程用于CGO调用
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	
 	debug := flag.Bool("debug", false, "Debug mode")
 	port := flag.String("port", "21234", "Server listen port")
 	flag.BoolVar(&config.TestMode, "test", false, "Test mode, and not start gammu service")

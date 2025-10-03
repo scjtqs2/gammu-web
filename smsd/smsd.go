@@ -6,8 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"os/user"
-	"runtime"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
@@ -56,12 +54,6 @@ func errCounter(e error) {
 }
 
 func Init(config string) {
-	// 设置GOMAXPROCS，避免CGO与调度器冲突
-	runtime.GOMAXPROCS(runtime.NumCPU())
-
-	// 启用CGO安全检查
-	debug.SetTraceback("system")
-	
 	var e error
 	if config[:2] == "~/" {
 		u, _ := user.Current()
